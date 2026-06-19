@@ -20,10 +20,6 @@ dist-ssr
 .env.*
 !.env.example
 
-# Local SQLite database (seed JSON in data/ is tracked)
-data/*.db
-data/*.db-*
-
 # Runtime document uploads (PDFs, certificates, etc.)
 data/documents/
 
