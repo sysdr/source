@@ -1,0 +1,584 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-31T09:00:00.897Z",
+  "data": {
+    "suez_onboarded": true,
+    "suez_transfer_pricing": {
+      "usRevenue": 0,
+      "usExpenses": 0,
+      "margin": 0
+    },
+    "suez_tax_engine": {
+      "bookProfit": 0
+    },
+    "suez_revenue_data": {
+      "transactions": [],
+      "lastSyncDate": null,
+      "startDate": "2025-04-01",
+      "endDate": "2026-01-31"
+    },
+    "suez_onboarding_draft": null,
+    "suez_organisations": {
+      "activeOrgId": "org-1780217842949",
+      "organisations": {
+        "org-1780217842949": {
+          "id": "org-1780217842949",
+          "name": "systemdr",
+          "profile": {
+            "projectName": "systemdr",
+            "baseCurrency": "INR",
+            "parent": {
+              "name": "SYSTEMDR LLP",
+              "type": "LLP",
+              "taxId": "27AFQFS5950Q1ZU",
+              "pan": "AFQFS5950Q",
+              "tan": "NGPS26969F",
+              "llpin": "ACP-3421",
+              "incorporationDate": "2025-06-23",
+              "address": "P No.70, F No. 202, Green Planet colony Besa, Parvati Nagar, Besa Police Station",
+              "city": "Nagpur",
+              "pin": "440027",
+              "state": "Maharashtra",
+              "stateCode": "27",
+              "country": "IN"
+            },
+            "subsidiary": {
+              "name": "SystemDR, Inc.",
+              "type": "C-Corp",
+              "taxId": "35-2939054",
+              "state": "Delaware",
+              "country": "US",
+              "incorporationDate": "2026-01-02",
+              "address": "131 Continental Dr, Suite 305",
+              "city": "Newark",
+              "pin": "19713"
+            },
+            "payroll": {
+              "pfEnabled": false,
+              "esiEnabled": false,
+              "ptState": "Maharashtra",
+              "standardWorkingDays": 26
+            },
+            "accounting": {
+              "expenseCategories": [
+                "SaaS & Hosting",
+                "Rent",
+                "Contractors",
+                "Marketing",
+                "Intercompany Fees"
+              ],
+              "revenueChannels": [
+                "Stripe US",
+                "Lemon Squeezy",
+                "Wire Transfers",
+                "Partner Capital"
+              ]
+            }
+          },
+          "createdAt": "2026-05-31T08:57:22.949Z",
+          "employees": [],
+          "transactions": [],
+          "revenueData": {
+            "transactions": [],
+            "lastSyncDate": null,
+            "startDate": "2025-04-01",
+            "endDate": "2026-01-31"
+          },
+          "transferPricing": {
+            "usRevenue": 0,
+            "usExpenses": 0,
+            "margin": 0,
+            "exportInvoice": {
+              "lutNumber": "AD270326080742Y",
+              "paymentTerms": "Net 30",
+              "placeOfSupply": "Denver, Colorado, USA",
+              "agreementDate": "2026-01-01",
+              "agreementReference": "Intercompany Service Agreement",
+              "serviceDescription": "Information Technology (IT) design and development services",
+              "sacCode": "998314",
+              "purposeCode": "P0802",
+              "qty": 1,
+              "rateUsd": 5000,
+              "useCalculatedAmount": true,
+              "recipientAddress": "SystemDR, Inc.\nDenver, Colorado, USA",
+              "signatoryTitle": "Partner",
+              "bank": {
+                "beneficiaryName": "SYSTEMDR LLP",
+                "accountNumber": "",
+                "bankName": "",
+                "branchAddress": "Nagpur, Maharashtra",
+                "swiftCode": "",
+                "adCode": ""
+              }
+            }
+          },
+          "taxEngine": {
+            "bookProfit": 0
+          },
+          "payrollRuns": [],
+          "leaveRequests": [],
+          "leavePolicies": [
+            {
+              "type": "CL",
+              "name": "Casual Leave",
+              "annualQuota": 12,
+              "carryForward": false,
+              "maxCarryForward": 0
+            },
+            {
+              "type": "SL",
+              "name": "Sick Leave",
+              "annualQuota": 12,
+              "carryForward": false,
+              "maxCarryForward": 0
+            },
+            {
+              "type": "EL",
+              "name": "Earned Leave",
+              "annualQuota": 15,
+              "carryForward": true,
+              "maxCarryForward": 30
+            },
+            {
+              "type": "ML",
+              "name": "Maternity Leave",
+              "annualQuota": 182,
+              "carryForward": false,
+              "maxCarryForward": 0
+            },
+            {
+              "type": "PL",
+              "name": "Paternity Leave",
+              "annualQuota": 15,
+              "carryForward": false,
+              "maxCarryForward": 0
+            },
+            {
+              "type": "CO",
+              "name": "Comp Off",
+              "annualQuota": 0,
+              "carryForward": false,
+              "maxCarryForward": 0
+            }
+          ],
+          "attendance": [],
+          "stripeOrgConfig": {
+            "apiKey": "",
+            "accounts": [],
+            "lastSavedAt": "2026-05-31T08:57:22.949Z"
+          },
+          "platformRules": {
+            "fxMarkup": 2.5,
+            "auditRiskThreshold": 500000
+          },
+          "modulePermissions": [
+            {
+              "id": "tp",
+              "name": "Transfer Pricing Engine",
+              "desc": "Auto-invoice generation between entities",
+              "enabled": true
+            },
+            {
+              "id": "stripe",
+              "name": "Live Stripe Ingestion",
+              "desc": "Sync real-time data from Stripe API",
+              "enabled": true
+            },
+            {
+              "id": "ai",
+              "name": "Suez AI Assistant",
+              "desc": "Legal & tax advice via Gemini",
+              "enabled": true
+            },
+            {
+              "id": "filing",
+              "name": "Statutory Filing Utility",
+              "desc": "JSON/CSV export for GSTR & 24Q",
+              "enabled": true
+            }
+          ],
+          "pendingTransactions": [],
+          "invoices": [],
+          "vendors": [],
+          "bills": [],
+          "paymentRuns": [],
+          "journalEntries": [],
+          "periodCloses": [],
+          "withholdingPayments": [],
+          "foreignIncomeRecords": [],
+          "taxTreaties": [],
+          "taxComputations": [],
+          "advanceTaxInstallments": [],
+          "ustaxDrafts": [],
+          "contractor1099s": [],
+          "filingTasks": [
+            {
+              "id": "filing-Form 1120-2027-1780217842988",
+              "type": "Form 1120",
+              "period": "2027",
+              "dueDate": "2027-04-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.988Z",
+              "updatedAt": "2026-05-31T08:57:22.988Z"
+            },
+            {
+              "id": "filing-Form 5472-2027-1780217842988",
+              "type": "Form 5472",
+              "period": "2027",
+              "dueDate": "2027-04-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.988Z",
+              "updatedAt": "2026-05-31T08:57:22.988Z"
+            },
+            {
+              "id": "filing-ITR-6-2026-2027-1780217842988",
+              "type": "ITR-6",
+              "period": "2026-2027",
+              "dueDate": "2027-10-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.988Z",
+              "updatedAt": "2026-05-31T08:57:22.988Z"
+            },
+            {
+              "id": "filing-GSTR-9-2026-2027-1780217842987",
+              "type": "GSTR-9",
+              "period": "2026-2027",
+              "dueDate": "2026-12-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.987Z",
+              "updatedAt": "2026-05-31T08:57:22.987Z"
+            },
+            {
+              "id": "filing-Advance Tax-2026-Q4-1780217842987",
+              "type": "Advance Tax",
+              "period": "2026-Q4",
+              "dueDate": "2027-03-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.987Z",
+              "updatedAt": "2026-05-31T08:57:22.987Z"
+            },
+            {
+              "id": "filing-Advance Tax-2026-Q3-1780217842986",
+              "type": "Advance Tax",
+              "period": "2026-Q3",
+              "dueDate": "2026-12-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.986Z",
+              "updatedAt": "2026-05-31T08:57:22.986Z"
+            },
+            {
+              "id": "filing-Advance Tax-2026-Q2-1780217842986",
+              "type": "Advance Tax",
+              "period": "2026-Q2",
+              "dueDate": "2026-09-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.986Z",
+              "updatedAt": "2026-05-31T08:57:22.986Z"
+            },
+            {
+              "id": "filing-Advance Tax-2026-Q1-1780217842985",
+              "type": "Advance Tax",
+              "period": "2026-Q1",
+              "dueDate": "2026-06-15",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.985Z",
+              "updatedAt": "2026-05-31T08:57:22.985Z"
+            },
+            {
+              "id": "filing-26Q-2026-Q4-1780217842984",
+              "type": "26Q",
+              "period": "2026-Q4",
+              "dueDate": "2027-03-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.984Z",
+              "updatedAt": "2026-05-31T08:57:22.984Z"
+            },
+            {
+              "id": "filing-24Q-2026-Q4-1780217842984",
+              "type": "24Q",
+              "period": "2026-Q4",
+              "dueDate": "2027-03-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.984Z",
+              "updatedAt": "2026-05-31T08:57:22.984Z"
+            },
+            {
+              "id": "filing-26Q-2026-Q3-1780217842983",
+              "type": "26Q",
+              "period": "2026-Q3",
+              "dueDate": "2026-12-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.983Z",
+              "updatedAt": "2026-05-31T08:57:22.983Z"
+            },
+            {
+              "id": "filing-24Q-2026-Q3-1780217842983",
+              "type": "24Q",
+              "period": "2026-Q3",
+              "dueDate": "2026-12-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.983Z",
+              "updatedAt": "2026-05-31T08:57:22.983Z"
+            },
+            {
+              "id": "filing-26Q-2026-Q2-1780217842982",
+              "type": "26Q",
+              "period": "2026-Q2",
+              "dueDate": "2026-09-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.982Z",
+              "updatedAt": "2026-05-31T08:57:22.982Z"
+            },
+            {
+              "id": "filing-24Q-2026-Q2-1780217842981",
+              "type": "24Q",
+              "period": "2026-Q2",
+              "dueDate": "2026-09-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.981Z",
+              "updatedAt": "2026-05-31T08:57:22.981Z"
+            },
+            {
+              "id": "filing-26Q-2026-Q1-1780217842981",
+              "type": "26Q",
+              "period": "2026-Q1",
+              "dueDate": "2026-06-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.981Z",
+              "updatedAt": "2026-05-31T08:57:22.981Z"
+            },
+            {
+              "id": "filing-24Q-2026-Q1-1780217842980",
+              "type": "24Q",
+              "period": "2026-Q1",
+              "dueDate": "2026-06-31",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.980Z",
+              "updatedAt": "2026-05-31T08:57:22.980Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2027-03-1780217842980",
+              "type": "GSTR-3B",
+              "period": "2027-03",
+              "dueDate": "2027-03-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.980Z",
+              "updatedAt": "2026-05-31T08:57:22.980Z"
+            },
+            {
+              "id": "filing-GSTR-1-2027-03-1780217842979",
+              "type": "GSTR-1",
+              "period": "2027-03",
+              "dueDate": "2027-03-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.979Z",
+              "updatedAt": "2026-05-31T08:57:22.979Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2027-02-1780217842979",
+              "type": "GSTR-3B",
+              "period": "2027-02",
+              "dueDate": "2027-02-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.979Z",
+              "updatedAt": "2026-05-31T08:57:22.979Z"
+            },
+            {
+              "id": "filing-GSTR-1-2027-02-1780217842978",
+              "type": "GSTR-1",
+              "period": "2027-02",
+              "dueDate": "2027-02-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.978Z",
+              "updatedAt": "2026-05-31T08:57:22.978Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2027-01-1780217842978",
+              "type": "GSTR-3B",
+              "period": "2027-01",
+              "dueDate": "2027-01-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.978Z",
+              "updatedAt": "2026-05-31T08:57:22.978Z"
+            },
+            {
+              "id": "filing-GSTR-1-2027-01-1780217842977",
+              "type": "GSTR-1",
+              "period": "2027-01",
+              "dueDate": "2027-01-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.977Z",
+              "updatedAt": "2026-05-31T08:57:22.977Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-12-1780217842977",
+              "type": "GSTR-3B",
+              "period": "2026-12",
+              "dueDate": "2026-12-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.977Z",
+              "updatedAt": "2026-05-31T08:57:22.977Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-12-1780217842976",
+              "type": "GSTR-1",
+              "period": "2026-12",
+              "dueDate": "2026-12-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.976Z",
+              "updatedAt": "2026-05-31T08:57:22.976Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-11-1780217842976",
+              "type": "GSTR-3B",
+              "period": "2026-11",
+              "dueDate": "2026-11-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.976Z",
+              "updatedAt": "2026-05-31T08:57:22.976Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-11-1780217842975",
+              "type": "GSTR-1",
+              "period": "2026-11",
+              "dueDate": "2026-11-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.975Z",
+              "updatedAt": "2026-05-31T08:57:22.975Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-10-1780217842975",
+              "type": "GSTR-3B",
+              "period": "2026-10",
+              "dueDate": "2026-10-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.975Z",
+              "updatedAt": "2026-05-31T08:57:22.975Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-10-1780217842974",
+              "type": "GSTR-1",
+              "period": "2026-10",
+              "dueDate": "2026-10-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.974Z",
+              "updatedAt": "2026-05-31T08:57:22.974Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-09-1780217842974",
+              "type": "GSTR-3B",
+              "period": "2026-09",
+              "dueDate": "2026-09-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.974Z",
+              "updatedAt": "2026-05-31T08:57:22.974Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-09-1780217842973",
+              "type": "GSTR-1",
+              "period": "2026-09",
+              "dueDate": "2026-09-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.973Z",
+              "updatedAt": "2026-05-31T08:57:22.973Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-08-1780217842972",
+              "type": "GSTR-3B",
+              "period": "2026-08",
+              "dueDate": "2026-08-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.972Z",
+              "updatedAt": "2026-05-31T08:57:22.972Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-08-1780217842972",
+              "type": "GSTR-1",
+              "period": "2026-08",
+              "dueDate": "2026-08-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.972Z",
+              "updatedAt": "2026-05-31T08:57:22.972Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-07-1780217842971",
+              "type": "GSTR-3B",
+              "period": "2026-07",
+              "dueDate": "2026-07-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.971Z",
+              "updatedAt": "2026-05-31T08:57:22.971Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-07-1780217842971",
+              "type": "GSTR-1",
+              "period": "2026-07",
+              "dueDate": "2026-07-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.971Z",
+              "updatedAt": "2026-05-31T08:57:22.971Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-06-1780217842970",
+              "type": "GSTR-3B",
+              "period": "2026-06",
+              "dueDate": "2026-06-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.970Z",
+              "updatedAt": "2026-05-31T08:57:22.970Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-06-1780217842970",
+              "type": "GSTR-1",
+              "period": "2026-06",
+              "dueDate": "2026-06-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.970Z",
+              "updatedAt": "2026-05-31T08:57:22.970Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-05-1780217842969",
+              "type": "GSTR-3B",
+              "period": "2026-05",
+              "dueDate": "2026-05-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.969Z",
+              "updatedAt": "2026-05-31T08:57:22.969Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-05-1780217842968",
+              "type": "GSTR-1",
+              "period": "2026-05",
+              "dueDate": "2026-05-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.968Z",
+              "updatedAt": "2026-05-31T08:57:22.968Z"
+            },
+            {
+              "id": "filing-GSTR-3B-2026-04-1780217842968",
+              "type": "GSTR-3B",
+              "period": "2026-04",
+              "dueDate": "2026-04-20",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.968Z",
+              "updatedAt": "2026-05-31T08:57:22.968Z"
+            },
+            {
+              "id": "filing-GSTR-1-2026-04-1780217842967",
+              "type": "GSTR-1",
+              "period": "2026-04",
+              "dueDate": "2026-04-11",
+              "status": "Pending",
+              "createdAt": "2026-05-31T08:57:22.967Z",
+              "updatedAt": "2026-05-31T08:57:22.967Z"
+            }
+          ],
+          "remittanceRecords": []
+        }
+      }
+    },
+    "suez_active_org_id": "org-1780217842949",
+    "suez_ui_active_tab": "admin",
+    "suez_ui_onboarding_step": 5
+  }
+}

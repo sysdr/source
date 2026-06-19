@@ -1,0 +1,221 @@
+{
+  "legalName": "SYSTEMDR LLP",
+  "displayName": "systemdr",
+  "entityType": "LLP",
+  "gstin": "27AFQFS5950Q1ZU",
+  "pan": "AFQFS5950Q",
+  "panIssueDate": "2025-06-23",
+  "tan": "NGPS26969F",
+  "llpin": "ACP-3421",
+  "fillipReference": "M30135791",
+  "incorporationDate": "2025-06-23",
+  "incorporationPlace": "Manesar, Central Registration Centre",
+  "incorporationForm": "Form 16 (LLP Rules 2009) / FiLLiP Certificate of Incorporation",
+  "state": "Maharashtra",
+  "stateCode": "27",
+  "registeredAddress": {
+    "line1": "P No.70, F No. 202, Green Planet colony Besa",
+    "line2": "Parvati Nagar, Besa Police Station",
+    "city": "Nagpur",
+    "state": "Maharashtra",
+    "pin": "440027",
+    "country": "IN"
+  },
+  "gstRegisteredAddress": {
+    "line1": "2nd floor, Flat no. 202, P No. 70, Green Planet, Besa Road",
+    "city": "Nagpur",
+    "state": "Maharashtra",
+    "pin": "440027"
+  },
+  "subsidiary": {
+    "legalName": "SystemDR, Inc.",
+    "delawareFilingName": "SYSTEMDR, INC.",
+    "displayName": "Systemdr Inc",
+    "entityType": "C-Corp",
+    "stateOfIncorporation": "Delaware",
+    "country": "US",
+    "ein": "35-2939054",
+    "incorporationDate": "2026-01-02",
+    "executedDate": "2026-01-01",
+    "incorporationTime": "4:44 PM",
+    "certificateDate": "2026-01-04",
+    "delawareFileNumber": "10458730",
+    "stateRecordNumber": "20260010693",
+    "authenticationNumber": "202712526",
+    "verificationUrl": "https://corp.delaware.gov/authver.shtml",
+    "registeredAgent": "Legalinc Corporate Services Inc.",
+    "registeredAddress": {
+      "line1": "131 Continental Dr, Suite 305",
+      "city": "Newark",
+      "county": "New Castle",
+      "state": "Delaware",
+      "zip": "19713",
+      "country": "US"
+    },
+    "operatingAddress": {
+      "city": "Denver",
+      "state": "Colorado",
+      "country": "US"
+    },
+    "authorizedShares": 1000,
+    "commonStockDesignation": "Common Stock",
+    "commonStockParValue": 0.1,
+    "management": "Board of Directors",
+    "exclusiveForum": "Court of Chancery of the State of Delaware",
+    "corporatePurpose": "Engage in any lawful act or activity under the Delaware General Corporation Law",
+    "initialDirector": {
+      "name": "Sumedh Shende",
+      "addressLine1": "201, Lodha Casa Viva TWR B",
+      "city": "Thane",
+      "state": "Maharashtra",
+      "zip": "400601",
+      "country": "IN"
+    },
+    "incorporator": {
+      "name": "Sumedh Shende",
+      "addressLine1": "201, Lodha Casa Viva TWR B, Majiwada",
+      "city": "Thane",
+      "state": "Maharashtra",
+      "zip": "400601",
+      "country": "IN"
+    },
+    "ss4": {
+      "form": "SS-4",
+      "letterType": "147(c) EIN Assignment",
+      "ein": "35-2939054",
+      "responsibleParty": "Sumedh Shende",
+      "responsiblePartyClassification": "Foreign",
+      "businessStartDate": "2026-01-01",
+      "accountingYearEnd": "December",
+      "businessActivity": "Technology Software / e-commerce / Internet business",
+      "county": "New Castle, Delaware",
+      "irsMailingAddress": {
+        "line1": "201, Lodha Casa Viva TWR B, Majiwada",
+        "city": "Thane",
+        "state": "Maharashtra",
+        "zip": "400601",
+        "country": "IN"
+      },
+      "thirdPartyDesignee": {
+        "name": "Antonio Rivera Jr.",
+        "addressLine1": "10601 Clarence Dr. Suite 250",
+        "city": "Frisco",
+        "state": "Texas",
+        "zip": "75033",
+        "country": "US",
+        "phone": "866-767-5850",
+        "fax": "323-978-1998",
+        "phoneAlt": "323-978-4263"
+      },
+      "signedBy": "Sumedh Shende, Founder",
+      "signedDate": "2026-01-01"
+    }
+  },
+  "lutCertificates": [
+    {
+      "financialYear": "2025-26",
+      "form": "GST RFD-11A",
+      "title": "Deemed Acceptance of LUT",
+      "orderNumber": "ZD270426011784C",
+      "applicationArn": "AD270326080639N",
+      "applicationDate": "2026-03-25",
+      "deemedApprovalDate": "2026-04-02",
+      "validity": "FY 2025-26",
+      "sourceFile": "GST RFD-11A 25-26.pdf"
+    },
+    {
+      "financialYear": "2026-27",
+      "form": "GST RFD-11A",
+      "title": "Deemed Acceptance of LUT",
+      "orderNumber": "ZD270426011720Q",
+      "applicationArn": "AD270326080742Y",
+      "applicationDate": "2026-03-25",
+      "deemedApprovalDate": "2026-04-02",
+      "validity": "FY 2026-27",
+      "sourceFile": "GST RFD-11A 26-27.pdf"
+    }
+  ],
+  "sourceDocuments": [
+    {
+      "id": "vault-pan-2025",
+      "title": "SYSTEMDR LLP — ePAN",
+      "type": "PAN Card",
+      "sourceFile": "Systemdr-PAN.pdf",
+      "date": "2025-06-23",
+      "extractedFields": {
+        "pan": "AFQFS5950Q",
+        "name": "SYSTEMDR LLP",
+        "issueDate": "2025-06-23"
+      }
+    },
+    {
+      "id": "vault-llp-incorp-2025",
+      "title": "Certificate of Incorporation — SYSTEMDR LLP",
+      "type": "LLP Incorporation (FiLLiP Form 16)",
+      "sourceFile": "FiLLiP_Approval Letter_M30135791.pdf",
+      "date": "2025-06-23",
+      "extractedFields": {
+        "llpin": "ACP-3421",
+        "pan": "AFQFS5950Q",
+        "tan": "NGPS26969F",
+        "incorporationDate": "2025-06-23",
+        "fillipReference": "M30135791"
+      }
+    },
+    {
+      "id": "vault-us-corp-sos-2026",
+      "title": "Delaware SOS Certificate — SYSTEMDR, INC.",
+      "type": "Delaware Secretary of State Filing Certificate",
+      "sourceFile": "SystemDRInc - Approved Certificate of Incorporation (Articles of Incorporation).pdf",
+      "date": "2026-01-02",
+      "extractedFields": {
+        "legalName": "SYSTEMDR, INC.",
+        "stateOfIncorporation": "Delaware",
+        "incorporationDate": "2026-01-02",
+        "delawareFileNumber": "10458730",
+        "stateRecordNumber": "20260010693",
+        "authenticationNumber": "202712526",
+        "certificateDate": "2026-01-04"
+      }
+    },
+    {
+      "id": "vault-us-corp-articles-2026",
+      "title": "Certificate of Incorporation (Articles) — SystemDR, Inc.",
+      "type": "Delaware C-Corp Articles of Incorporation",
+      "sourceFile": "SystemDR_ Inc. Certificate of Incorporation.pdf",
+      "date": "2026-01-01",
+      "extractedFields": {
+        "legalName": "SystemDR, Inc.",
+        "registeredOffice": "131 Continental Dr, Suite 305, Newark, DE 19713",
+        "registeredAgent": "Legalinc Corporate Services Inc.",
+        "authorizedShares": "1000 Common Stock @ $0.1 par",
+        "initialDirector": "Sumedh Shende",
+        "incorporator": "Sumedh Shende",
+        "executedDate": "2026-01-01"
+      }
+    },
+    {
+      "id": "vault-us-ein-ss4-2026",
+      "title": "IRS EIN Assignment — SystemDR, Inc. (SS-4 / 147c)",
+      "type": "IRS Form SS-4 EIN Confirmation",
+      "sourceFile": "SystemDRInc - 147c Letter_Approved SS-4 (1).pdf",
+      "date": "2026-01-01",
+      "extractedFields": {
+        "legalName": "SystemDR, Inc.",
+        "ein": "35-2939054",
+        "entityType": "Corporation",
+        "stateOfIncorporation": "Delaware",
+        "responsibleParty": "Sumedh Shende (Foreign)",
+        "businessActivity": "Technology Software / e-commerce / Internet business",
+        "accountingYearEnd": "December",
+        "businessStartDate": "2026-01-01"
+      }
+    }
+  ],
+  "invoiceDeclaration": "SUPPLY MEANT FOR EXPORT UNDER BOND OR LETTER OF UNDERTAKING WITHOUT PAYMENT OF INTEGRATED TAX.",
+  "lutConditions": [
+    "Export goods/services without IGST within time specified in rule 96A(1)",
+    "Observe all GST Act provisions for export of goods or services",
+    "Pay IGST plus 18% p.a. interest if export fails, from invoice date to payment date"
+  ]
+}

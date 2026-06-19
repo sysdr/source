@@ -1,0 +1,7 @@
+{
+  "name": "Project Suez - Cross-Border Financial OS",
+  "description": "A comprehensive financial operating system for Indian founders with US subsidiaries, managing transfer pricing, compliance, and tax optimization.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
