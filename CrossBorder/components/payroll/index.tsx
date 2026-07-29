@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Employee, CompanyProfile, PayrollRun as PayrollRunType, LeaveRequest, LeavePolicy } from '../../types';
 import {
   getCompanyProfile, getLeaveRequests, getLeavePolicies, getUIState, setUIState, StorageKeys,
+  syncEmployeesFromServer,
 } from '../../services/storageService';
 import { MONTHS, computeFullSalary, FullSalaryResult } from '../../services/payrollCalculator';
 import { useEmployees, useUpsertEmployee, useDeleteEmployee } from '../../hooks/useEmployees';
@@ -111,6 +112,15 @@ const PayrollEngine: React.FC = () => {
     const timer = toastTimers.current.get(id);
     if (timer) { clearTimeout(timer); toastTimers.current.delete(id); }
   }, []);
+
+  useEffect(() => {
+    syncEmployeesFromServer().then((added) => {
+      if (added > 0) {
+        window.dispatchEvent(new Event('suez_data_updated'));
+        toast('info', `${added} employee(s) synced from invites`);
+      }
+    }).catch(() => { /* server offline */ });
+  }, [toast]);
 
   // ── Callbacks passed to sub-components ────────────────────────────────────
 

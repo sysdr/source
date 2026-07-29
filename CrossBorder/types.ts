@@ -56,6 +56,16 @@ export interface CompanyProfile {
   accounting: AccountingConfig;
 }
 
+export interface EmployeeUploadedDoc {
+  id: string;
+  kind: 'pan' | 'aadhaar' | 'contract' | 'bank' | 'photo' | 'other';
+  fileName: string;
+  mimeType: string;
+  /** Base64 data URL (small docs only; prefer server storage for large files). */
+  dataUrl?: string;
+  uploadedAt: string;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -91,6 +101,47 @@ export interface Employee {
   section80D?: number;
   hraExemptionRent?: number;
   salaryRevisions?: SalaryRevision[];
+  /** Set when employee joined via email invite. */
+  inviteId?: string;
+  onboardedViaInviteAt?: string;
+  uploadedDocuments?: EmployeeUploadedDoc[];
+}
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  /** Stored locally / org_data; never returned in public APIs. */
+  password: string;
+  fromEmail: string;
+  fromName: string;
+  replyTo?: string;
+  enabled: boolean;
+  updatedAt?: string;
+}
+
+export type EmployeeInviteStatus = 'pending' | 'sent' | 'accepted' | 'expired' | 'revoked';
+
+export interface EmployeeInvite {
+  id: string;
+  token: string;
+  orgId: string;
+  orgName: string;
+  email: string;
+  name?: string;
+  designation?: string;
+  department?: string;
+  ctc?: number;
+  doj?: string;
+  employeeType?: Employee['employeeType'];
+  status: EmployeeInviteStatus;
+  createdAt: string;
+  expiresAt: string;
+  sentAt?: string;
+  acceptedAt?: string;
+  employeeId?: string;
+  lastError?: string;
 }
 
 export interface SalaryRevision {

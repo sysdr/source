@@ -56,6 +56,14 @@ const OrgManager        = lazy(() => import('./components/OrgManager'));
 const AgentArchitectureView = lazy(() => import('./components/AgentArchitectureView'));
 const Invoices          = lazy(() => import('./components/Invoices'));
 const MercuryBankScreen = lazy(() => import('./components/MercuryBankScreen'));
+const EmployeeJoin      = lazy(() => import('./components/EmployeeJoin'));
+
+function parseJoinTokenFromHash(): string | null {
+  const hash = window.location.hash || '';
+  const match = hash.match(/#\/?join\?([^#]*)/i);
+  if (!match) return null;
+  return new URLSearchParams(match[1]).get('token');
+}
 
 /* ─── Page title map ─────────────────────────────────────────────────────── */
 const PAGE_LABELS: Record<string, { title: string; section: string }> = {
@@ -101,6 +109,7 @@ const Ico: React.FC<{ d: string | string[]; size?: number; style?: React.CSSProp
 
 /* ─── Main App ───────────────────────────────────────────────────────────── */
 const App: React.FC = () => {
+  const [joinToken, setJoinToken] = useState<string | null>(() => parseJoinTokenFromHash());
   const [activeTab, setActiveTabState]       = useState(() => getUIState(StorageKeys.UI_ACTIVE_TAB, 'dashboard'));
   const [query, setQuery]                    = useState('');
   const [advice, setAdvice]                  = useState('');
@@ -129,6 +138,12 @@ const App: React.FC = () => {
   const stripeCredentials = getStripeCredentials();
   const [stripeApiKey, setStripeApiKey]       = useState(stripeCredentials.apiKey);
   const [stripeAccountId, setStripeAccountId] = useState(stripeCredentials.accountId);
+
+  useEffect(() => {
+    const onHash = () => setJoinToken(parseJoinTokenFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   useEffect(() => {
     const refresh = () => setCompanyProfile(getCompanyProfile());
@@ -220,6 +235,17 @@ const App: React.FC = () => {
     setShowStartupPage(false);
     setShowOrgManager(false);
   };
+
+  /* ──────────────────────────────────────────────────────────────────────
+     EMPLOYEE JOIN (public invite link: #/join?token=…)
+  ────────────────────────────────────────────────────────────────────── */
+  if (joinToken) {
+    return (
+      <Suspense fallback={<TabFallback />}>
+        <EmployeeJoin token={joinToken} />
+      </Suspense>
+    );
+  }
 
   /* ──────────────────────────────────────────────────────────────────────
      STARTUP PAGE — redesigned premium launcher

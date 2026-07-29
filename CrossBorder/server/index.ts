@@ -30,6 +30,7 @@ if (typeof globalThis.sessionStorage === 'undefined') {
 }
 
 import http from 'node:http';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   getAllKV, setKV, deleteKV, clearKV,
   queryTransactions, getTransactionCount, upsertTransaction, bulkUpsertTransactions, deleteTransaction,
@@ -40,6 +41,7 @@ import {
   insertReport, listReports, getReport, deleteReport,
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
+  upsertInvite, getInviteByToken, listInvites, updateInviteStatus, deleteInvite,
 } from './db.js';
 import {
   TransactionSchema, TransactionUpdateSchema,
@@ -49,6 +51,7 @@ import {
 } from './schemas.js';
 import { reconcileOrg } from './reconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
+import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
 
 const PORT = Number(process.env.PORT) || 3001;
 const getSuezApiKey = () => process.env.SUEZ_API_KEY || '';
@@ -152,7 +155,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       ...corsHeaders(req),
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
     });
     res.end();
@@ -831,6 +834,339 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       try { res.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`); res.end(); } catch { /* already ended */ }
     }
     return;
+  }
+
+  // ── SMTP settings ────────────────────────────────────────────────────────────
+  // GET  /api/smtp?orgId=          → settings without password
+  // PUT  /api/smtp                 → { orgId, settings }
+  // POST /api/smtp/test            → { orgId, to? } send test email
+  const SMTP_ORG_KEY = 'suez_smtp_settings';
+
+  if (url === '/api/smtp' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const raw = getOrgData(orgId, SMTP_ORG_KEY) as Record<string, unknown> | null;
+    if (!raw) { respond(req, res, 200, { settings: null }); return; }
+    const { password: _pw, ...safe } = raw;
+    respond(req, res, 200, {
+      settings: {
+        ...safe,
+        hasPassword: typeof _pw === 'string' && _pw.length > 0,
+      },
+    });
+    return;
+  }
+
+  if (url === '/api/smtp' && req.method === 'PUT') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const settings = body.settings;
+      if (!orgId || !settings || typeof settings !== 'object') {
+        respond(req, res, 400, { error: 'orgId and settings required' });
+        return;
+      }
+      const incoming = settings as Record<string, unknown>;
+      const existing = (getOrgData(orgId, SMTP_ORG_KEY) as Record<string, unknown> | null) || {};
+      const password =
+        typeof incoming.password === 'string' && incoming.password.length > 0
+          ? incoming.password
+          : (typeof existing.password === 'string' ? existing.password : '');
+      const merged = {
+        host: String(incoming.host ?? existing.host ?? ''),
+        port: Number(incoming.port ?? existing.port ?? 587) || 587,
+        secure: Boolean(incoming.secure ?? existing.secure ?? false),
+        username: String(incoming.username ?? existing.username ?? ''),
+        password,
+        fromEmail: String(incoming.fromEmail ?? existing.fromEmail ?? ''),
+        fromName: String(incoming.fromName ?? existing.fromName ?? ''),
+        replyTo: typeof incoming.replyTo === 'string' ? incoming.replyTo : (existing.replyTo as string | undefined),
+        enabled: Boolean(incoming.enabled ?? existing.enabled ?? true),
+        updatedAt: new Date().toISOString(),
+      };
+      setOrgData(orgId, SMTP_ORG_KEY, merged);
+      const { password: _p, ...safe } = merged;
+      respond(req, res, 200, { ok: true, settings: { ...safe, hasPassword: !!merged.password } });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/smtp/test' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const raw = getOrgData(orgId, SMTP_ORG_KEY);
+      const cfg = normalizeSmtpConfig(raw);
+      if (!cfg) {
+        respond(req, res, 400, { error: 'SMTP is not configured. Save host, username, password, and from email first.' });
+        return;
+      }
+      await verifySmtp(cfg);
+      const to = typeof body.to === 'string' && body.to.trim() ? body.to.trim() : cfg.fromEmail;
+      const result = await sendMail(cfg, {
+        to,
+        subject: 'Project Suez — SMTP test',
+        text: `This is a test email from Project Suez for organisation ${orgId}.\nSent at ${new Date().toISOString()}.`,
+        html: `<p>This is a <strong>test email</strong> from Project Suez for organisation <code>${orgId}</code>.</p><p>Sent at ${new Date().toISOString()}.</p>`,
+      });
+      respond(req, res, 200, { ok: true, messageId: result.messageId, to });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message || 'Failed to send test email' });
+    }
+    return;
+  }
+
+  // ── Employee invites ─────────────────────────────────────────────────────────
+  // GET    /api/invites?orgId=
+  // POST   /api/invites  { orgId, email, name?, designation?, ... }
+  // DELETE /api/invites/:id?orgId=
+  // GET    /api/invites/token/:token   (public — invitee)
+  // POST   /api/invites/token/:token/complete  (public — submit profile)
+
+  if (url === '/api/invites' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const rows = listInvites(orgId);
+    const invites = rows.map((r) => {
+      let data: Record<string, unknown> = {};
+      try { data = JSON.parse(r.data) as Record<string, unknown>; } catch { /* */ }
+      return {
+        id: r.id,
+        token: r.token,
+        orgId: r.org_id,
+        email: r.email,
+        status: r.status,
+        expiresAt: r.expires_at,
+        createdAt: r.created_at,
+        ...data,
+      };
+    });
+    respond(req, res, 200, { invites });
+    return;
+  }
+
+  if (url === '/api/invites' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      if (!orgId || !email || !email.includes('@')) {
+        respond(req, res, 400, { error: 'orgId and a valid email are required' });
+        return;
+      }
+      const orgName =
+        typeof body.orgName === 'string' && body.orgName.trim()
+          ? body.orgName.trim()
+          : ((getOrgData(orgId, 'suez_company_profile') as { projectName?: string } | null)?.projectName
+            || orgId);
+      const id = randomUUID();
+      const token = randomBytes(24).toString('hex');
+      const expiresDays = typeof body.expiresDays === 'number' && body.expiresDays > 0 ? body.expiresDays : 14;
+      const expiresAt = new Date(Date.now() + expiresDays * 24 * 60 * 60 * 1000).toISOString();
+      const inviteData: Record<string, unknown> = {
+        orgName,
+        name: typeof body.name === 'string' ? body.name.trim() : undefined,
+        designation: typeof body.designation === 'string' ? body.designation.trim() : undefined,
+        department: typeof body.department === 'string' ? body.department.trim() : undefined,
+        ctc: typeof body.ctc === 'number' ? body.ctc : undefined,
+        doj: typeof body.doj === 'string' ? body.doj : undefined,
+        employeeType: typeof body.employeeType === 'string' ? body.employeeType : 'Full-time',
+      };
+      upsertInvite({
+        id,
+        token,
+        orgId,
+        email,
+        status: 'pending',
+        expiresAt,
+        data: inviteData,
+      });
+
+      const appBase =
+        typeof body.appBaseUrl === 'string' && body.appBaseUrl.trim()
+          ? body.appBaseUrl.trim().replace(/\/$/, '')
+          : (process.env.APP_BASE_URL || 'http://localhost:9000');
+      const inviteUrl = `${appBase}/#/join?token=${token}`;
+
+      let sent = false;
+      let sendError: string | undefined;
+      const smtpRaw = getOrgData(orgId, SMTP_ORG_KEY);
+      const cfg = normalizeSmtpConfig(smtpRaw);
+      if (cfg) {
+        try {
+          const mail = buildInviteEmail({
+            orgName,
+            inviteeName: inviteData.name as string | undefined,
+            inviteUrl,
+            expiresAt,
+            designation: inviteData.designation as string | undefined,
+          });
+          await sendMail(cfg, { to: email, ...mail });
+          sent = true;
+          updateInviteStatus(token, 'sent', { sentAt: new Date().toISOString() });
+        } catch (err) {
+          sendError = (err as Error).message;
+          updateInviteStatus(token, 'pending', { lastError: sendError });
+        }
+      } else {
+        sendError = 'SMTP not configured — invite created but email was not sent.';
+      }
+
+      respond(req, res, 200, {
+        ok: true,
+        invite: {
+          id,
+          token,
+          orgId,
+          email,
+          status: sent ? 'sent' : 'pending',
+          expiresAt,
+          inviteUrl,
+          ...inviteData,
+          lastError: sendError,
+        },
+        emailSent: sent,
+        error: sendError,
+      });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  const inviteIdMatch = url.match(/^\/api\/invites\/([^/]+)$/);
+  if (inviteIdMatch && inviteIdMatch[1] !== 'token' && req.method === 'DELETE') {
+    const inviteId = decodeURIComponent(inviteIdMatch[1]);
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const ok = deleteInvite(orgId, inviteId);
+    respond(req, res, ok ? 200 : 404, ok ? { ok: true } : { error: 'Not found' });
+    return;
+  }
+
+  const inviteTokenMatch = url.match(/^\/api\/invites\/token\/([^/]+)(?:\/(complete))?$/);
+  if (inviteTokenMatch) {
+    const token = decodeURIComponent(inviteTokenMatch[1]);
+    const action = inviteTokenMatch[2];
+
+    if (req.method === 'GET' && !action) {
+      const row = getInviteByToken(token);
+      if (!row) { respond(req, res, 404, { error: 'Invite not found' }); return; }
+      if (row.status === 'revoked') { respond(req, res, 410, { error: 'Invite was revoked' }); return; }
+      if (row.status === 'accepted') { respond(req, res, 410, { error: 'Invite already accepted' }); return; }
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        updateInviteStatus(token, 'expired');
+        respond(req, res, 410, { error: 'Invite has expired' });
+        return;
+      }
+      let data: Record<string, unknown> = {};
+      try { data = JSON.parse(row.data) as Record<string, unknown>; } catch { /* */ }
+      respond(req, res, 200, {
+        invite: {
+          email: row.email,
+          orgId: row.org_id,
+          orgName: data.orgName || row.org_id,
+          name: data.name,
+          designation: data.designation,
+          department: data.department,
+          ctc: data.ctc,
+          doj: data.doj,
+          employeeType: data.employeeType,
+          expiresAt: row.expires_at,
+          status: row.status,
+        },
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && action === 'complete') {
+      try {
+        const row = getInviteByToken(token);
+        if (!row) { respond(req, res, 404, { error: 'Invite not found' }); return; }
+        if (row.status === 'accepted') { respond(req, res, 410, { error: 'Invite already accepted' }); return; }
+        if (row.status === 'revoked') { respond(req, res, 410, { error: 'Invite was revoked' }); return; }
+        if (new Date(row.expires_at).getTime() < Date.now()) {
+          updateInviteStatus(token, 'expired');
+          respond(req, res, 410, { error: 'Invite has expired' });
+          return;
+        }
+        const body = await parseBody(req);
+        const profile = (body.profile && typeof body.profile === 'object')
+          ? body.profile as Record<string, unknown>
+          : body;
+        const name = typeof profile.name === 'string' ? profile.name.trim() : '';
+        if (!name) { respond(req, res, 400, { error: 'Full name is required' }); return; }
+
+        let inviteMeta: Record<string, unknown> = {};
+        try { inviteMeta = JSON.parse(row.data) as Record<string, unknown>; } catch { /* */ }
+
+        const employeeId = randomUUID();
+        const docs = Array.isArray(profile.uploadedDocuments) ? profile.uploadedDocuments as { kind?: string }[] : [];
+        const documents = {
+          pan: Boolean(typeof profile.panNumber === 'string' && profile.panNumber.trim()),
+          aadhaar: Boolean(typeof profile.aadhaarNumber === 'string' && profile.aadhaarNumber.trim()),
+          contract: docs.some((d) => d?.kind === 'contract'),
+        };
+        const designation =
+          (typeof profile.designation === 'string' && profile.designation.trim())
+            ? profile.designation.trim()
+            : (typeof inviteMeta.designation === 'string' && inviteMeta.designation
+              ? String(inviteMeta.designation)
+              : 'Team Member');
+        const rawCtc = typeof profile.ctc === 'number'
+          ? profile.ctc
+          : (typeof inviteMeta.ctc === 'number' ? inviteMeta.ctc : 0);
+        const ctc = rawCtc > 0 ? rawCtc : 1;
+        const employee = {
+          id: employeeId,
+          name,
+          email: row.email,
+          designation,
+          ctc,
+          doj: typeof profile.doj === 'string' && profile.doj
+            ? profile.doj
+            : (typeof inviteMeta.doj === 'string' ? inviteMeta.doj : new Date().toISOString().slice(0, 10)),
+          status: 'Onboarding',
+          documents,
+          panNumber: typeof profile.panNumber === 'string' ? profile.panNumber : undefined,
+          aadhaarNumber: typeof profile.aadhaarNumber === 'string' ? profile.aadhaarNumber : undefined,
+          uan: typeof profile.uan === 'string' ? profile.uan : undefined,
+          esiNumber: typeof profile.esiNumber === 'string' ? profile.esiNumber : undefined,
+          bankAccountNumber: typeof profile.bankAccountNumber === 'string' ? profile.bankAccountNumber : undefined,
+          bankIFSC: typeof profile.bankIFSC === 'string' ? profile.bankIFSC : undefined,
+          bankName: typeof profile.bankName === 'string' ? profile.bankName : undefined,
+          dateOfBirth: typeof profile.dateOfBirth === 'string' ? profile.dateOfBirth : undefined,
+          gender: typeof profile.gender === 'string' ? profile.gender : undefined,
+          phone: typeof profile.phone === 'string' ? profile.phone : undefined,
+          address: typeof profile.address === 'string' ? profile.address : undefined,
+          fatherOrSpouseName: typeof profile.fatherOrSpouseName === 'string' ? profile.fatherOrSpouseName : undefined,
+          employeeType: typeof profile.employeeType === 'string'
+            ? profile.employeeType
+            : (inviteMeta.employeeType || 'Full-time'),
+          department: typeof profile.department === 'string'
+            ? profile.department
+            : (typeof inviteMeta.department === 'string' ? inviteMeta.department : undefined),
+          taxRegime: typeof profile.taxRegime === 'string' ? profile.taxRegime : 'new',
+          inviteId: row.id,
+          onboardedViaInviteAt: new Date().toISOString(),
+          uploadedDocuments: docs,
+        };
+
+        upsertEmployee(row.org_id, employee as Record<string, unknown>);
+        updateInviteStatus(token, 'accepted', {
+          acceptedAt: new Date().toISOString(),
+          employeeId,
+        });
+
+        respond(req, res, 200, { ok: true, employeeId, status: 'Onboarding' });
+      } catch (err) {
+        respond(req, res, 400, { error: (err as Error).message });
+      }
+      return;
+    }
   }
 
   respond(req, res, 404, { error: 'Not found' });

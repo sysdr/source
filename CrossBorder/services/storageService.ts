@@ -1,4 +1,4 @@
-import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord } from '../types';
+import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord, SmtpSettings, EmployeeInvite } from '../types';
 import { setIfChanged, remove as persistentRemove, clearHashes } from './persistentStorage';
 import { dbSet, dbDelete, dbClear } from './dbSync';
 import { api } from './apiClient';
@@ -59,6 +59,8 @@ export enum StorageKeys {
   UI_ADMIN_DOC_DRAFT = 'suez_ui_admin_doc_draft',
   UI_ONBOARDING_STEP = 'suez_ui_onboarding_step',
   UI_DISPLAY_CURRENCY = 'suez_ui_display_currency',
+  SMTP_SETTINGS = 'suez_smtp_settings',
+  EMPLOYEE_INVITES = 'suez_employee_invites',
   INVOICES = 'suez_invoices',
   INVOICE_COMPANY_PROFILES = 'invoice_company_profiles',
   INVOICE_CLIENT_PROFILES = 'invoice_client_profiles',
@@ -565,6 +567,63 @@ export const updateEmployee = (id: string, updates: Partial<Employee>): void => 
     setEmployeesRaw(all);
   }
 };
+
+const DEFAULT_SMTP: SmtpSettings = {
+  host: '',
+  port: 587,
+  secure: false,
+  username: '',
+  password: '',
+  fromEmail: '',
+  fromName: '',
+  replyTo: '',
+  enabled: true,
+};
+
+export const getSmtpSettings = (): SmtpSettings => {
+  return storage.get<SmtpSettings>(StorageKeys.SMTP_SETTINGS) || { ...DEFAULT_SMTP };
+};
+
+export const setSmtpSettings = (settings: SmtpSettings): void => {
+  const merged = { ...settings, updatedAt: new Date().toISOString() };
+  storage.set(StorageKeys.SMTP_SETTINGS, merged);
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  syncToApi(() => api.saveSmtpSettings(orgId, merged as unknown as Record<string, unknown>));
+};
+
+export const getEmployeeInvitesLocal = (): EmployeeInvite[] => {
+  return storage.get<EmployeeInvite[]>(StorageKeys.EMPLOYEE_INVITES) || [];
+};
+
+export const setEmployeeInvitesLocal = (invites: EmployeeInvite[]): void => {
+  storage.set(StorageKeys.EMPLOYEE_INVITES, invites);
+};
+
+/** Merge server-side employees into local org so invitees appear in HR/payroll. */
+export async function syncEmployeesFromServer(): Promise<number> {
+  const orgId = getActiveOrgId() ?? 'default';
+  const remote = await api.getEmployees(orgId);
+  if (!remote || !Array.isArray(remote)) return 0;
+  const local = getAllEmployeesIncludingArchived();
+  const byId = new Map(local.map((e) => [e.id, e]));
+  let added = 0;
+  for (const emp of remote) {
+    if (!emp?.id) continue;
+    if (!byId.has(emp.id)) {
+      byId.set(emp.id, emp);
+      added += 1;
+    } else {
+      // Prefer richer remote record when invitee uploaded docs
+      const existing = byId.get(emp.id)!;
+      if ((emp.uploadedDocuments?.length ?? 0) > (existing.uploadedDocuments?.length ?? 0)
+        || (emp.onboardedViaInviteAt && !existing.onboardedViaInviteAt)) {
+        byId.set(emp.id, { ...existing, ...emp });
+      }
+    }
+  }
+  setEmployeesRaw(Array.from(byId.values()));
+  return added;
+}
 
 export const getTransferPricingData = (): TransferPricingData => {
   const org = getActiveOrg();

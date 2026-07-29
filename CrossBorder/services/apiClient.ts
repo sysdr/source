@@ -10,7 +10,7 @@
  * Base URL: VITE_SERVER_URL env var or http://localhost:3001
  */
 
-import type { Transaction, Employee, PayrollRun, Invoice } from '../types';
+import type { Transaction, Employee, PayrollRun, Invoice, EmployeeInvite } from '../types';
 
 const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string; VITE_SUEZ_API_KEY?: string } }).env?.VITE_SERVER_URL
   ?? 'http://localhost:3001';
@@ -247,5 +247,130 @@ export const api = {
       throw new Error(data.error || res.statusText || 'stripeSqliteSync failed');
     }
     return data;
+  },
+
+  // ── SMTP ──────────────────────────────────────────────────────────────────
+  async getSmtpSettings(orgId: string): Promise<(Record<string, unknown> & { hasPassword?: boolean }) | null> {
+    const result = await apiFetch<{ settings: (Record<string, unknown> & { hasPassword?: boolean }) | null }>(
+      `/api/smtp${qs({ orgId })}`,
+    );
+    return result?.settings ?? null;
+  },
+
+  async saveSmtpSettings(orgId: string, settings: Record<string, unknown>): Promise<boolean> {
+    const result = await apiFetch<{ ok: boolean }>('/api/smtp', {
+      method: 'PUT',
+      body: JSON.stringify({ orgId, settings }),
+    });
+    return result?.ok ?? false;
+  },
+
+  async testSmtp(orgId: string, to?: string): Promise<{ ok: boolean; to?: string; messageId?: string; error?: string }> {
+    try {
+      const result = await apiFetch<{ ok: boolean; to?: string; messageId?: string }>('/api/smtp/test', {
+        method: 'POST',
+        body: JSON.stringify({ orgId, to }),
+      });
+      if (!result) return { ok: false, error: 'Server unreachable. Start the API with npm run server.' };
+      return { ok: true, ...result };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  },
+
+  // ── Employee invites ──────────────────────────────────────────────────────
+  async listInvites(orgId: string): Promise<EmployeeInvite[] | null> {
+    const result = await apiFetch<{ invites: EmployeeInvite[] }>(`/api/invites${qs({ orgId })}`);
+    return result?.invites ?? null;
+  },
+
+  async createInvite(body: {
+    orgId: string;
+    email: string;
+    orgName?: string;
+    name?: string;
+    designation?: string;
+    department?: string;
+    ctc?: number;
+    doj?: string;
+    employeeType?: string;
+    expiresDays?: number;
+    appBaseUrl?: string;
+  }): Promise<{
+    ok: boolean;
+    invite?: EmployeeInvite & { inviteUrl?: string };
+    emailSent?: boolean;
+    error?: string;
+  }> {
+    try {
+      const result = await apiFetch<{
+        ok: boolean;
+        invite: EmployeeInvite & { inviteUrl?: string };
+        emailSent?: boolean;
+        error?: string;
+      }>('/api/invites', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      if (!result) return { ok: false, error: 'Server unreachable. Start the API with npm run server.' };
+      return result;
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  },
+
+  async deleteInvite(orgId: string, inviteId: string): Promise<boolean> {
+    const result = await apiFetch<{ ok: boolean }>(
+      `/api/invites/${encodeURIComponent(inviteId)}${qs({ orgId })}`,
+      { method: 'DELETE' },
+    );
+    return result?.ok ?? false;
+  },
+
+  async getInviteByToken(token: string): Promise<{
+    invite?: {
+      email: string;
+      orgId: string;
+      orgName: string;
+      name?: string;
+      designation?: string;
+      department?: string;
+      ctc?: number;
+      doj?: string;
+      employeeType?: string;
+      expiresAt: string;
+      status: string;
+    };
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${BASE}/api/invites/token/${encodeURIComponent(token)}`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json() as { invite?: Record<string, unknown>; error?: string };
+      if (!res.ok) return { error: data.error || res.statusText };
+      return { invite: data.invite as never };
+    } catch (e) {
+      return { error: (e as Error).message || 'Server unreachable' };
+    }
+  },
+
+  async completeInvite(token: string, profile: Record<string, unknown>): Promise<{
+    ok: boolean;
+    employeeId?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${BASE}/api/invites/token/${encodeURIComponent(token)}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile }),
+      });
+      const data = await res.json() as { ok?: boolean; employeeId?: string; error?: string };
+      if (!res.ok) return { ok: false, error: data.error || res.statusText };
+      return { ok: true, employeeId: data.employeeId };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || 'Server unreachable' };
+    }
   },
 };

@@ -181,6 +181,21 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  -- Employee email invites (token-based self-onboarding)
+  CREATE TABLE IF NOT EXISTS employee_invites (
+    id          TEXT PRIMARY KEY NOT NULL,
+    token       TEXT NOT NULL UNIQUE,
+    org_id      TEXT NOT NULL,
+    email       TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    expires_at  TEXT NOT NULL,
+    data        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_invites_org ON employee_invites(org_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_invites_token ON employee_invites(token);
 `);
 
 // ─── KV store (legacy) ────────────────────────────────────────────────────────
@@ -713,6 +728,91 @@ export function getProcessed(orgId: string, rowId: string): ProcessedRow | null 
 
 export function deleteProcessed(orgId: string, rowId: string): boolean {
   const info = db.prepare('DELETE FROM processed_data WHERE id = ? AND org_id = ?').run(rowId, orgId);
+  return info.changes > 0;
+}
+
+// ─── Employee invites ─────────────────────────────────────────────────────────
+
+export interface InviteRow {
+  id: string;
+  token: string;
+  org_id: string;
+  email: string;
+  status: string;
+  expires_at: string;
+  data: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function upsertInvite(invite: {
+  id: string;
+  token: string;
+  orgId: string;
+  email: string;
+  status: string;
+  expiresAt: string;
+  data: Record<string, unknown>;
+}): void {
+  db.prepare(`
+    INSERT INTO employee_invites (id, token, org_id, email, status, expires_at, data, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      token = excluded.token,
+      email = excluded.email,
+      status = excluded.status,
+      expires_at = excluded.expires_at,
+      data = excluded.data,
+      updated_at = datetime('now')
+  `).run(
+    invite.id,
+    invite.token,
+    invite.orgId,
+    invite.email.toLowerCase(),
+    invite.status,
+    invite.expiresAt,
+    JSON.stringify(invite.data),
+  );
+}
+
+export function getInviteByToken(token: string): InviteRow | null {
+  const row = db.prepare(
+    'SELECT id, token, org_id, email, status, expires_at, data, created_at, updated_at FROM employee_invites WHERE token = ?'
+  ).get(token) as InviteRow | undefined;
+  return row ?? null;
+}
+
+export function getInviteById(orgId: string, id: string): InviteRow | null {
+  const row = db.prepare(
+    'SELECT id, token, org_id, email, status, expires_at, data, created_at, updated_at FROM employee_invites WHERE id = ? AND org_id = ?'
+  ).get(id, orgId) as InviteRow | undefined;
+  return row ?? null;
+}
+
+export function listInvites(orgId: string): InviteRow[] {
+  return db.prepare(
+    'SELECT id, token, org_id, email, status, expires_at, data, created_at, updated_at FROM employee_invites WHERE org_id = ? ORDER BY created_at DESC'
+  ).all(orgId) as InviteRow[];
+}
+
+export function updateInviteStatus(
+  token: string,
+  status: string,
+  dataPatch?: Record<string, unknown>,
+): InviteRow | null {
+  const existing = getInviteByToken(token);
+  if (!existing) return null;
+  let data: Record<string, unknown> = {};
+  try { data = JSON.parse(existing.data) as Record<string, unknown>; } catch { /* ignore */ }
+  if (dataPatch) data = { ...data, ...dataPatch };
+  db.prepare(`
+    UPDATE employee_invites SET status = ?, data = ?, updated_at = datetime('now') WHERE token = ?
+  `).run(status, JSON.stringify(data), token);
+  return getInviteByToken(token);
+}
+
+export function deleteInvite(orgId: string, id: string): boolean {
+  const info = db.prepare('DELETE FROM employee_invites WHERE id = ? AND org_id = ?').run(id, orgId);
   return info.changes > 0;
 }
 

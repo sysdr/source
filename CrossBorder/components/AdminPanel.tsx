@@ -4,15 +4,18 @@ import { CompanyProfile, VaultDocument, Employee } from '../types';
 import { getCompanyProfile, getPlatformRules, setPlatformRules, getModulePermissions, setModulePermissions, getOrganisationsList, getActiveOrgId, getLiveModeDataStatus, clearAllDataInLiveMode, getEmployees, updateEmployee, getManualUsdToInrRate, setManualUsdToInrRate, exportConfig, importConfig, type ConfigExportPayload, getUIState, setUIState, StorageKeys, addVaultDocument } from '../services/storageService';
 import { loadDefaultOrganisationConfig } from '../services/defaultOrganisation';
 import { getTodayUsdToInrRate, fetchTodayUsdToInrRate } from '../services/currencyService';
+import AdminEmailInvites from './AdminEmailInvites';
 
 interface AdminPanelProps {
   onOpenOrgManager?: () => void;
 }
 
+type AdminTab = 'config' | 'documents' | 'organisations' | 'employees' | 'email';
+
 const AdminPanel: React.FC<AdminPanelProps> = ({ onOpenOrgManager }) => {
   const [profile, setProfile] = useState<CompanyProfile | null>(() => getCompanyProfile());
-  const [activeTab, setActiveTabState] = useState<'config' | 'documents' | 'organisations' | 'employees'>(() => getUIState(StorageKeys.UI_ADMIN_TAB, 'config' as 'config' | 'documents' | 'organisations' | 'employees'));
-  const setActiveTab = (v: 'config' | 'documents' | 'organisations' | 'employees') => { setActiveTabState(v); setUIState(StorageKeys.UI_ADMIN_TAB, v); };
+  const [activeTab, setActiveTabState] = useState<AdminTab>(() => getUIState(StorageKeys.UI_ADMIN_TAB, 'config' as AdminTab));
+  const setActiveTab = (v: AdminTab) => { setActiveTabState(v); setUIState(StorageKeys.UI_ADMIN_TAB, v); };
   const [orgs, setOrgs] = useState(() => getOrganisationsList());
   const [liveStatus, setLiveStatus] = useState(() => getLiveModeDataStatus());
   const [employees, setEmployees] = useState<Employee[]>(() => getEmployees());
@@ -152,13 +155,16 @@ This is a digitally generated document.
           <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Admin Control Center</h2>
           <p className="text-slate-500 mt-1 font-medium">Master configuration and document issuance hub.</p>
         </div>
-        <div className="flex bg-slate-200 p-1 rounded-xl text-[10px] font-black shadow-inner">
+        <div className="flex bg-slate-200 p-1 rounded-xl text-[10px] font-black shadow-inner flex-wrap justify-end">
            <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 rounded-lg transition-all ${activeTab === 'config' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}>MODULE CONFIG</button>
+           <button onClick={() => setActiveTab('email')} className={`px-4 py-1.5 rounded-lg transition-all ${activeTab === 'email' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}>EMAIL & INVITES</button>
            <button onClick={() => setActiveTab('documents')} className={`px-4 py-1.5 rounded-lg transition-all ${activeTab === 'documents' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}>DOCUMENT ISSUER</button>
            <button onClick={() => setActiveTab('employees')} className={`px-4 py-1.5 rounded-lg transition-all ${activeTab === 'employees' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}>EMPLOYEES</button>
            <button onClick={() => setActiveTab('organisations')} className={`px-4 py-1.5 rounded-lg transition-all ${activeTab === 'organisations' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}>ORGANISATIONS</button>
         </div>
       </header>
+
+      {activeTab === 'email' && <AdminEmailInvites />}
 
       {activeTab === 'config' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
