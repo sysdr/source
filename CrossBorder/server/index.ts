@@ -42,6 +42,7 @@ import {
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
   upsertInvite, getInviteByToken, listInvites, updateInviteStatus, deleteInvite,
+  checkpointDatabase,
 } from './db.js';
 import {
   TransactionSchema, TransactionUpdateSchema,
@@ -52,6 +53,7 @@ import {
 import { reconcileOrg } from './reconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
+import { rebuildKvFromDomain } from './rebuildKv.js';
 
 const PORT = Number(process.env.PORT) || 3001;
 const getSuezApiKey = () => process.env.SUEZ_API_KEY || '';
@@ -176,7 +178,22 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // DELETE /api/storage        → clear all keys (full reset)
 
   if (url === '/api/storage' && req.method === 'GET') {
+    try {
+      rebuildKvFromDomain();
+    } catch (err) {
+      console.warn('[api] rebuildKvFromDomain:', (err as Error).message);
+    }
     respond(req, res, 200, getAllKV());
+    return;
+  }
+
+  if (url === '/api/bootstrap' && req.method === 'GET') {
+    try {
+      const summary = rebuildKvFromDomain();
+      respond(req, res, 200, { ok: true, ...summary, storage: getAllKV() });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
     return;
   }
 
@@ -1178,6 +1195,13 @@ export function createServer() {
 }
 
 if (!process.env.VITEST) {
+  try {
+    const summary = rebuildKvFromDomain();
+    checkpointDatabase();
+    console.log(`[db] Snapshot ready org=${summary.orgId} employees=${summary.employees} transactions=${summary.transactions}`);
+  } catch (err) {
+    console.warn('[db] snapshot rebuild failed:', (err as Error).message);
+  }
   const server = createServer();
   server.listen(PORT, () => {
     const keyIsSet = getSuezApiKey() ? 'set' : 'not set';

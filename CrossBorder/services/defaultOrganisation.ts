@@ -73,9 +73,20 @@ import { importConfig } from './storageService';
 const DEFAULT_ORG_VERSION_KEY = 'suez_default_org_version';
 const DEFAULT_ORG_SEEDED_KEY = 'suez_default_org_seeded';
 
-/** Import bundled config when version is outdated or never seeded. */
+/** Import bundled config only when this browser has no organisation yet. */
 export function seedDefaultOrganisationIfNeeded(): boolean {
+  // Never clobber a hydrate-from-SQLite (or existing) workspace.
   const current = localStorage.getItem(DEFAULT_ORG_VERSION_KEY);
+  const onboardedRaw = localStorage.getItem('suez_onboarded');
+  const onboarded = onboardedRaw === 'true' || onboardedRaw === '"true"';
+  const hasOrgs = !!localStorage.getItem('suez_organisations');
+  if (hasOrgs || onboarded) {
+    if (current !== DEFAULT_ORG_VERSION) {
+      localStorage.setItem(DEFAULT_ORG_VERSION_KEY, DEFAULT_ORG_VERSION);
+      localStorage.setItem(DEFAULT_ORG_SEEDED_KEY, '1');
+    }
+    return false;
+  }
   if (current === DEFAULT_ORG_VERSION) {
     return false;
   }

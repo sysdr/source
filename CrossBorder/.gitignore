@@ -23,6 +23,12 @@ dist-ssr
 # Runtime document uploads (PDFs, certificates, etc.)
 data/documents/
 
+# SQLite WAL sidecars — main DB file data/suez.db is tracked for clone bootstrap
+data/*.db-wal
+data/*.db-shm
+*.db-wal
+*.db-shm
+
 # Test & coverage
 coverage
 

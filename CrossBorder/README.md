@@ -1,29 +1,32 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Project Suez — Cross-Border Financial OS
 
-# Run and deploy your AI Studio app
+## Run locally (clone → full data)
 
-This contains everything you need to run your app locally.
+The committed SQLite file `data/suez.db` is the workspace snapshot (org, ledger, employees, SMTP, etc.). On first load the API rebuilds browser storage from that DB.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1abSGiTi60CBfC1X69ppbfcD8nFB1YZnJ
+**Prerequisites:** Node.js
 
-## Run Locally
+1. `npm install`
+2. Copy `.env.local` keys as needed (`GEMINI_API_KEY`, optional `VITE_SERVER_URL`)
+3. Start API + UI (API first so hydration works):
 
-**Prerequisites:**  Node.js
+```bash
+npm run server   # http://localhost:3001 — serves data/suez.db
+npm run dev      # http://localhost:9000
+```
 
+Open the app once with the server running; localStorage is filled from SQLite.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Refresh the shared snapshot (before commit)
+
+```bash
+npm run snapshot:data
+git add data/suez.db
+```
+
+Do not commit `*.db-wal` / `*.db-shm`.
 
 ## Testing
 
-Tests run automatically on each push and pull request via GitHub Actions.
-
-- **Run tests:** `npm test`
-- **Watch mode:** `npm run test:watch`
-
-The test suite covers services (currency, storage, Stripe sync), components, and core types.
+- `npm test` / `npm run test:watch`
+- CI runs on push and pull request

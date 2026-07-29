@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:stripe-fetch": "node scripts/test-stripe-fetch.mjs",
     "seed:db": "tsx scripts/seed-default-org-db.ts",
+    "snapshot:data": "tsx scripts/snapshot-data.ts",
     "server": "tsx server/index.ts"
   },
   "dependencies": {

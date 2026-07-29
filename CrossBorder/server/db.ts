@@ -277,6 +277,16 @@ export function queryTransactions(f: TxnFilters): unknown[] {
   return rows.map(r => { try { return JSON.parse(r.data); } catch { return null; } }).filter(Boolean);
 }
 
+/** Full ledger for snapshot/hydrate (no API pagination cap). */
+export function getAllTransactionsForOrg(orgId: string, includeDeleted = false): unknown[] {
+  const rows = db.prepare(
+    includeDeleted
+      ? 'SELECT data FROM transactions WHERE org_id = ? ORDER BY date DESC, rowid DESC'
+      : 'SELECT data FROM transactions WHERE org_id = ? AND deleted = 0 ORDER BY date DESC, rowid DESC'
+  ).all(orgId) as { data: string }[];
+  return rows.map(r => { try { return JSON.parse(r.data); } catch { return null; } }).filter(Boolean);
+}
+
 export function upsertTransaction(orgId: string, tx: Record<string, unknown>): void {
   const id = tx.id as string;
   db.prepare(`
@@ -814,6 +824,15 @@ export function updateInviteStatus(
 export function deleteInvite(orgId: string, id: string): boolean {
   const info = db.prepare('DELETE FROM employee_invites WHERE id = ? AND org_id = ?').run(id, orgId);
   return info.changes > 0;
+}
+
+/** Checkpoint WAL into the main DB file so clones get the latest committed data. */
+export function checkpointDatabase(): void {
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch (err) {
+    console.warn('[db] wal_checkpoint failed:', (err as Error).message);
+  }
 }
 
 // Run migration on module load
