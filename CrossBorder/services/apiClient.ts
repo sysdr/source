@@ -17,13 +17,59 @@ const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string; VITE_SUEZ_API_K
 
 const SUEZ_CLIENT_KEY = (import.meta as { env?: { VITE_SUEZ_API_KEY?: string } }).env?.VITE_SUEZ_API_KEY;
 
+const ACCESS_ROLE_KEY = 'suez_access_role';
+const ACCOUNTANT_TOKEN_KEY = 'suez_accountant_token';
+const WRITER_SESSION_KEY = 'suez_writer_session_id';
+
+export function getAccessRole(): 'owner' | 'accountant' | 'employee' {
+  const role = sessionStorage.getItem(ACCESS_ROLE_KEY);
+  if (role === 'accountant' || role === 'employee') return role;
+  return 'owner';
+}
+
+export function setAccessRole(role: 'owner' | 'accountant' | 'employee'): void {
+  sessionStorage.setItem(ACCESS_ROLE_KEY, role);
+}
+
+export function getAccountantToken(): string | null {
+  return sessionStorage.getItem(ACCOUNTANT_TOKEN_KEY);
+}
+
+export function setAccountantToken(token: string | null): void {
+  if (token) sessionStorage.setItem(ACCOUNTANT_TOKEN_KEY, token);
+  else sessionStorage.removeItem(ACCOUNTANT_TOKEN_KEY);
+}
+
+export function getOrCreateWriterSessionId(): string {
+  let id = sessionStorage.getItem(WRITER_SESSION_KEY);
+  if (!id) {
+    id = `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(WRITER_SESSION_KEY, id);
+  }
+  return id;
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const role = getAccessRole();
+  headers['X-SUEZ-ROLE'] = role;
+  const token = getAccountantToken();
+  if (token) headers['X-SUEZ-ACCOUNTANT-TOKEN'] = token;
+  if (SUEZ_CLIENT_KEY) headers['X-API-Key'] = SUEZ_CLIENT_KEY;
+  return headers;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+        ...(init?.headers ?? {}),
+      },
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));

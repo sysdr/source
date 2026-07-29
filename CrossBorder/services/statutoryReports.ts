@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { Employee, PayrollRun, PayrollRunSlip, CompanyProfile } from '../types';
 import { computeYTD, MONTHS } from './payrollCalculator';
 import { getWithholdingPayments, getForeignIncomeRecords, getCompanyProfile } from './storageService';
+import { generateForm24q, generateForm26q, generateEpfEcr, withholdingsTo26qDeductees } from './filings';
 
 function downloadFile(content: string, filename: string, mimeType: string = 'text/plain') {
   const blob = new Blob([content], { type: mimeType });
@@ -22,61 +23,13 @@ export function generateForm24QCSV(
   financialYear: string,
   profile: CompanyProfile,
 ): void {
-  const quarterMonths: Record<string, string[]> = {
-    Q1: ['April', 'May', 'June'],
-    Q2: ['July', 'August', 'September'],
-    Q3: ['October', 'November', 'December'],
-    Q4: ['January', 'February', 'March'],
-  };
-  const months = quarterMonths[quarter];
-  const [fyStart] = financialYear.split('-').map(Number);
-  const quarterRuns = runs.filter((r) => {
-    if (!months.includes(r.month)) return false;
-    const expectedYear = ['January', 'February', 'March'].includes(r.month) ? fyStart + 1 : fyStart;
-    return r.year === expectedYear;
-  });
-
-  const allSlips = quarterRuns.flatMap((r) => r.employeeSlips);
-
-  const header = [
-    'Sr No', 'Employee PAN', 'Employee Name', 'Section Code', 'Payment Date',
-    'Amount Paid/Credited', 'TDS Deducted', 'TDS Deposited', 'Deductor TAN',
-    'Assessment Year',
-  ].join(',');
-
-  const rows: string[] = [];
-  let sr = 1;
-  for (const emp of employees) {
-    const empSlips = allSlips.filter((s) => s.employeeId === emp.id);
-    if (empSlips.length === 0) continue;
-    const totalPaid = empSlips.reduce((a, s) => a + s.grossEarnings, 0);
-    const totalTDS = empSlips.reduce((a, s) => a + s.tds, 0);
-    if (totalTDS <= 0) continue;
-    rows.push([
-      sr++,
-      emp.panNumber || 'PANNOTAVBL',
-      `"${emp.name}"`,
-      '192',
-      quarterRuns[quarterRuns.length - 1]?.runAt?.split('T')[0] || '',
-      Math.round(totalPaid),
-      Math.round(totalTDS),
-      Math.round(totalTDS),
-      profile.parent?.taxId || '',
-      `${fyStart + 1}-${String(fyStart + 2).slice(2)}`,
-    ].join(','));
+  // Schema-validated NSDL/Traces-oriented export (REQ-009 / REQ-049 / REQ-055)
+  const result = generateForm24q({ employees, runs, quarter, financialYear, profile });
+  if (!result.ok) {
+    throw new Error(`Form 24Q validation failed: ${result.issues.map((i) => i.message).join('; ')}`);
   }
-
-  const content = [
-    `# Form 24Q - Quarterly Statement of TDS on Salary`,
-    `# Quarter: ${quarter} | Financial Year: ${financialYear}`,
-    `# Deductor: ${profile.parent?.name || ''} | TAN: ${profile.parent?.taxId || ''}`,
-    `# Generated: ${new Date().toISOString()}`,
-    '',
-    header,
-    ...rows,
-  ].join('\n');
-
-  downloadFile(content, `Form24Q_${quarter}_${financialYear}.csv`, 'text/csv');
+  const payload = result.data as { csv: string };
+  downloadFile(payload.csv, `Form24Q_${quarter}_${financialYear}.csv`, 'text/csv');
 }
 
 // ── PF ECR Text File ────────────────────────────────────────────────────────
@@ -86,35 +39,12 @@ export function generatePFECR(
   run: PayrollRun,
   profile: CompanyProfile,
 ): void {
-  const lines: string[] = [];
-  lines.push(`#~#${profile.parent?.name || 'Company'}#~#${profile.parent?.taxId || ''}#~#${run.month} ${run.year}#~#EPFO ECR#~#`);
-  lines.push('');
-
-  for (const slip of run.employeeSlips) {
-    const emp = employees.find((e) => e.id === slip.employeeId);
-    if (!emp) continue;
-    const pfWage = Math.min(slip.basic, 15000);
-    const epsWage = Math.min(slip.basic, 15000);
-    const edliWage = Math.min(slip.basic, 15000);
-    const epfContrib = slip.epf;
-    const epsContrib = slip.epsEmployer;
-    const ncpDays = slip.lopDays || 0;
-    // UAN#MEMBER_NAME#GROSS_WAGES#EPF_WAGES#EPS_WAGES#EDLI_WAGES#EPF_CONTRIBUTION#EPS_CONTRIBUTION#NCP_DAYS#REFUND
-    lines.push([
-      emp.uan || '000000000000',
-      emp.name.toUpperCase(),
-      Math.round(slip.grossEarnings),
-      pfWage,
-      epsWage,
-      edliWage,
-      epfContrib,
-      epsContrib,
-      ncpDays,
-      0,
-    ].join('#'));
+  const result = generateEpfEcr({ employees, run, profile });
+  if (!result.ok) {
+    throw new Error(`EPF ECR validation failed: ${result.issues.map((i) => i.message).join('; ')}`);
   }
-
-  downloadFile(lines.join('\n'), `PF_ECR_${run.month}_${run.year}.txt`);
+  const payload = result.data as { text: string };
+  downloadFile(payload.text, `PF_ECR_${run.month}_${run.year}.txt`);
 }
 
 // ── ESI Monthly Return ──────────────────────────────────────────────────────
@@ -451,39 +381,27 @@ export function generatePayrollRegister(
 // ── Form 26Q (TDS non-salary) ───────────────────────────────────────────────
 
 export function generateForm26QCSV(
-  quarter: string,
+  quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4',
   financialYear: string,
   profile?: CompanyProfile | null,
 ): void {
   const deductorProfile = profile ?? getCompanyProfile();
-  const withholdings = getWithholdingPayments().filter(
-    (w) => w.quarter === quarter && w.financialYear === financialYear && w.section !== '192',
-  );
-  const header = [
-    'Sr No', 'PAN of Deductee', 'Name', 'Section', 'Amount Paid', 'TDS Deducted', 'Payment Date',
-    'Deductor TAN', 'Assessment Year',
-  ].join(',');
-  const rows = withholdings.map((w, i) => [
-    i + 1,
-    '',
-    `"${w.payeeName}"`,
-    w.section,
-    Math.round(w.amount),
-    Math.round(w.withheldAmount),
-    w.date,
-    deductorProfile?.parent?.taxId || '',
-    `${parseInt(financialYear, 10) + 1}-${String(parseInt(financialYear, 10) + 2).slice(2)}`,
-  ].join(','));
-  const content = [
-    `# Form 26Q - Quarterly TDS (Non-Salary)`,
-    `# Quarter: ${quarter} | FY: ${financialYear}`,
-    `# Deductor: ${deductorProfile?.parent?.name || ''}`,
-    `# Generated: ${new Date().toISOString()}`,
-    '',
-    header,
-    ...rows,
-  ].join('\n');
-  downloadFile(content, `Form26Q_${quarter}_${financialYear}.csv`, 'text/csv');
+  if (!deductorProfile) {
+    throw new Error('Company profile required for Form 26Q');
+  }
+  const withholdings = getWithholdingPayments();
+  const deductees = withholdingsTo26qDeductees(withholdings, quarter, financialYear);
+  const result = generateForm26q({
+    quarter,
+    financialYear,
+    profile: deductorProfile,
+    deductees,
+  });
+  if (!result.ok) {
+    throw new Error(`Form 26Q validation failed: ${result.issues.map((i) => i.message).join('; ')}`);
+  }
+  const payload = result.data as { csv: string };
+  downloadFile(payload.csv, `Form26Q_${quarter}_${financialYear}.csv`, 'text/csv');
 }
 
 // ── Form 27Q (TDS non-resident) ───────────────────────────────────────────────

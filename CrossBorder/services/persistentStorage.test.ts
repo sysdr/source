@@ -13,14 +13,14 @@ const HASHES_KEY = 'suez_ps_hashes';
 const ls: Record<string, string> = {};
 
 beforeEach(() => {
-  vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => ls[key] ?? null);
-  vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key: string, value: string) => {
+  Object.keys(ls).forEach((k) => delete ls[k]);
+  vi.spyOn(localStorage, 'getItem').mockImplementation((key: string) => ls[key] ?? null);
+  vi.spyOn(localStorage, 'setItem').mockImplementation((key: string, value: string) => {
     ls[key] = value;
   });
-  vi.spyOn(Storage.prototype, 'removeItem').mockImplementation((key: string) => {
+  vi.spyOn(localStorage, 'removeItem').mockImplementation((key: string) => {
     delete ls[key];
   });
-  Object.keys(ls).forEach((k) => delete ls[k]);
 });
 
 describe('persistentStorage', () => {

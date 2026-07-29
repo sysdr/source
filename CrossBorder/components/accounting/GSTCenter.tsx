@@ -3,6 +3,12 @@ import { Transaction } from '../../types';
 import { getBaseCurrency, formatAmountInDisplay, getAmountInBase, getGstImpactInBase } from '../../services/currencyService';
 import { getCompanyProfile } from '../../services/storageService';
 import { useDisplayCurrency } from '../../contexts/DisplayCurrencyContext';
+import {
+  FILING_DISCLAIMER,
+  generateGstr1,
+  generateGstr3b,
+  gstr1ToJsonString,
+} from '../../services/filings';
 
 // ─── Indian FY helpers ────────────────────────────────────────────────────────
 const getFYBounds = (offset = 0): { start: Date; end: Date; label: string } => {
@@ -16,6 +22,22 @@ const getFYBounds = (offset = 0): { start: Date; end: Date; label: string } => {
   };
 };
 
+function currentFp(): string {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  return `${mm}${now.getFullYear()}`;
+}
+
+function downloadText(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface GSTCenterProps {
   transactions: Transaction[];
@@ -25,6 +47,8 @@ const GSTCenter: React.FC<GSTCenterProps> = ({ transactions }) => {
   const baseCurrency = getBaseCurrency();
   const { displayCurrency } = useDisplayCurrency();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const isCompletedForTotal = (t: { status?: string }) =>
     !t.status || (t.status !== 'Failed' && t.status !== 'Refunded' && t.status !== 'Pending');
@@ -54,117 +78,85 @@ const GSTCenter: React.FC<GSTCenterProps> = ({ transactions }) => {
   ).length;
   const netGstPayable = Math.max(0, stats.outwardGst - stats.eligibleItc);
 
-  const downloadReport = (name: string) => {
+  const downloadReport = (name: 'gst_r1' | 'gst_3b') => {
+    if (!acknowledged) {
+      setExportError('Acknowledge the filing disclaimer before downloading.');
+      return;
+    }
     setIsDownloading(true);
+    setExportError(null);
     try {
       const profile = getCompanyProfile();
-      const gstin = profile?.parent?.taxId || '';
-      const generatedAt = new Date().toISOString();
+      const gstin = profile?.parent?.taxId || 'UNREGISTERED';
+      const fp = currentFp();
+      const stateCode = profile?.parent?.stateCode || '27';
 
       if (name === 'gst_r1') {
-        const outward = activeTxns.filter((t) => t.type === 'Income' && isCompletedForTotal(t));
-        const isExport = (t: Transaction) =>
-          (t.customerCountry && t.customerCountry.toUpperCase() !== 'IN') ||
-          (t.customerLocation && t.customerLocation.toUpperCase() !== 'IN') ||
-          (t.classification && String(t.classification).toLowerCase().includes('export'));
-        const isInterState = (t: Transaction) =>
-          !!(t.customerCountry && t.customerCountry.toUpperCase() !== 'IN') ||
-          (profile?.parent?.state && t.customerLocation && t.customerLocation !== profile.parent.state);
-
-        const lines: string[] = [
-          '# GSTR-1 (Draft — aligned to GST filing tables per CGST Act §37)',
-          `# GSTIN: ${gstin}`,
-          `# GeneratedAt: ${generatedAt}`,
-          '# Table 4A = B2B (registered), Table 5 = B2CL (>2.5L inter-state), Table 6A = Exports, Table 7 = B2CS',
-          'Table,InvoiceNo,InvoiceDate,RecipientGSTIN,POS,SupplyType,TaxableValue,Rate%,IGST,CGST,SGST,Cess',
-        ];
-
-        outward.forEach((t) => {
-          const taxable = getAmountInBase(t, baseCurrency);
-          const rate = t.gstRate ?? 0;
-          const gst = taxable * rate / 100;
-          const pos = t.customerCountry && t.customerCountry.toUpperCase() !== 'IN'
-            ? (t.customerCountry || '96')
-            : (profile?.parent?.stateCode || profile?.parent?.state || '27');
-          if (isExport(t)) {
-            lines.push(['6A', t.id, t.date, '', pos, 'Export-LUT', taxable.toFixed(2), '0', '0.00', '0.00', '0.00', '0.00'].join(','));
-          } else if (t.recipientGstin) {
-            const igst = isInterState(t) ? gst : 0;
-            lines.push(['4A', t.id, t.date, t.recipientGstin, pos, 'B2B', taxable.toFixed(2), String(rate), igst.toFixed(2), igst ? '0.00' : (gst/2).toFixed(2), igst ? '0.00' : (gst/2).toFixed(2), '0.00'].join(','));
-          } else if (taxable > 250000 && isInterState(t)) {
-            lines.push(['5', t.id, t.date, '', pos, 'B2CL', taxable.toFixed(2), String(rate), gst.toFixed(2), '0.00', '0.00', '0.00'].join(','));
-          } else {
-            lines.push(['7', t.id, t.date, '', pos, 'B2CS', taxable.toFixed(2), String(rate), '0.00', (gst/2).toFixed(2), (gst/2).toFixed(2), '0.00'].join(','));
-          }
+        const result = generateGstr1({
+          gstin,
+          fp,
+          supplierStateCode: stateCode,
+          transactions: activeTxns,
         });
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `GSTR1_Draft_${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-        setIsDownloading(false);
+        if (!result.ok) {
+          setExportError(result.issues.map((i) => `${i.path}: ${i.message}`).join('; '));
+          return;
+        }
+        downloadText(
+          gstr1ToJsonString(result.data),
+          `GSTR1_${fp}.json`,
+          'application/json',
+        );
         return;
       }
 
-      if (name === 'gst_3b') {
-        const outward = activeTxns.filter((t) => t.type === 'Income' && isCompletedForTotal(t));
-        const inward = activeTxns.filter((t) => t.type === 'Purchase' && isCompletedForTotal(t));
-        const isExport = (t: Transaction) =>
-          (t.customerCountry && t.customerCountry.toUpperCase() !== 'IN') ||
-          (t.customerLocation && t.customerLocation.toUpperCase() !== 'IN') ||
-          (t.classification && String(t.classification).toLowerCase().includes('export'));
-
-        const exportTaxable = outward.filter(isExport).reduce((s, t) => s + getAmountInBase(t, baseCurrency), 0);
-        const domesticTaxable = outward.filter((t) => !isExport(t)).reduce((s, t) => s + getAmountInBase(t, baseCurrency), 0);
-        const domesticGst = outward.filter((t) => !isExport(t)).reduce((s, t) => {
-          const amt = getAmountInBase(t, baseCurrency); return s + amt * (t.gstRate ?? 0) / 100;
-        }, 0);
-        const totalItc = inward.filter(t => t.itcEligible !== false).reduce((s, t) => s + getGstImpactInBase(t, baseCurrency), 0);
-        const blockedItcAmt = inward.filter(t => t.itcEligible === false).reduce((s, t) => s + getGstImpactInBase(t, baseCurrency), 0);
-
-        const lines: string[] = [
-          '# GSTR-3B (Draft summary format aligned to GST filing sections)',
-          `# GSTIN: ${gstin}`,
-          `# GeneratedAt: ${generatedAt}`,
-          'Table,Description,TaxableValue,IGST,CGST,SGST,Cess',
-          `3.1(a),Outward taxable supplies (other than zero rated),${domesticTaxable.toFixed(2)},0.00,${(domesticGst / 2).toFixed(2)},${(domesticGst / 2).toFixed(2)},0.00`,
-          `3.1(b),Outward taxable supplies (zero rated),${exportTaxable.toFixed(2)},0.00,0.00,0.00,0.00`,
-          '3.1(c),Other outward supplies (Nil/exempt),0.00,0.00,0.00,0.00,0.00',
-          '3.1(d),Inward supplies liable to reverse charge,0.00,0.00,0.00,0.00,0.00',
-          '3.1(e),Non-GST outward supplies,0.00,0.00,0.00,0.00,0.00',
-          '',
-          'Table,ITC Description,IGST,CGST,SGST,Cess',
-          `4A(5),All other ITC (eligible only),0.00,${(totalItc / 2).toFixed(2)},${(totalItc / 2).toFixed(2)},0.00`,
-          `4B(1),Sec 17(5) blocked ITC (ineligible — do not claim),0.00,${(blockedItcAmt / 2).toFixed(2)},${(blockedItcAmt / 2).toFixed(2)},0.00`,
-          '4B(2),Others (reversal),0.00,0.00,0.00,0.00',
-          `4C,Net ITC Available,0.00,${(totalItc / 2).toFixed(2)},${(totalItc / 2).toFixed(2)},0.00`,
-          '',
-          'Table,Tax payable after ITC,IGST,CGST,SGST,Cess',
-          `6.1,Net tax payable,0.00,${Math.max(0, (domesticGst - totalItc) / 2).toFixed(2)},${Math.max(0, (domesticGst - totalItc) / 2).toFixed(2)},0.00`,
-        ];
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `GSTR3B_Draft_${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        window.URL.revokeObjectURL(url);
+      const result = generateGstr3b({
+        gstin,
+        retPeriod: fp,
+        transactions: activeTxns,
+      });
+      if (!result.ok) {
+        setExportError(result.issues.map((i) => `${i.path}: ${i.message}`).join('; '));
+        return;
       }
+      downloadText(
+        `${JSON.stringify(result.data, null, 2)}\n`,
+        `GSTR3B_${fp}.json`,
+        'application/json',
+      );
     } finally {
       setIsDownloading(false);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={acknowledged}
+            onChange={(e) => {
+              setAcknowledged(e.target.checked);
+              setExportError(null);
+            }}
+          />
+          <span className="text-xs text-amber-950 leading-relaxed">
+            <span className="font-black uppercase tracking-wide text-[10px] block mb-1">Filing disclaimer</span>
+            {FILING_DISCLAIMER}
+          </span>
+        </label>
+        {exportError && (
+          <p className="mt-2 text-xs font-bold text-rose-700">{exportError}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
         <div>
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">GSTR-1 (Outward Supplies)</h3>
-          <p className="text-xs text-slate-400 font-medium mt-1">{fyLabel} · CGST Act §37</p>
+          <p className="text-xs text-slate-400 font-medium mt-1">{fyLabel} · CGST Act §37 · GSTN JSON</p>
         </div>
         <div className="space-y-2">
           <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between">
@@ -186,10 +178,10 @@ const GSTCenter: React.FC<GSTCenterProps> = ({ transactions }) => {
         </div>
         <button
           onClick={() => downloadReport('gst_r1')}
-          disabled={isDownloading}
-          className="w-full bg-slate-900 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all"
+          disabled={isDownloading || !acknowledged}
+          className="w-full bg-slate-900 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all disabled:opacity-50"
         >
-          Download GSTR-1 CSV (Offline Utility)
+          Download GSTR-1 JSON (Offline Utility)
         </button>
       </div>
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
@@ -223,11 +215,12 @@ const GSTCenter: React.FC<GSTCenterProps> = ({ transactions }) => {
         </div>
         <button
           onClick={() => downloadReport('gst_3b')}
-          disabled={isDownloading}
-          className="w-full border-2 border-slate-200 text-slate-900 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+          disabled={isDownloading || !acknowledged}
+          className="w-full border-2 border-slate-200 text-slate-900 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50"
         >
-          Generate Draft GSTR-3B CSV
+          Download GSTR-3B JSON (Offline Utility)
         </button>
+      </div>
       </div>
     </div>
   );

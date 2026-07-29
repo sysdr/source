@@ -176,6 +176,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_processed_pipeline     ON processed_data(org_id, pipeline);
   CREATE INDEX IF NOT EXISTS idx_processed_input        ON processed_data(input_id) WHERE input_id IS NOT NULL;
 
+  -- Stripe webhook idempotency/event trail
+  CREATE TABLE IF NOT EXISTS stripe_events (
+    event_id      TEXT PRIMARY KEY NOT NULL,
+    org_id        TEXT NOT NULL,
+    event_type    TEXT NOT NULL,
+    idempotency_key TEXT,
+    payload       TEXT NOT NULL,
+    received_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    processed_at  TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_stripe_events_org_received ON stripe_events(org_id, received_at DESC);
+
   -- Migration tracker
   CREATE TABLE IF NOT EXISTS _meta (
     key   TEXT PRIMARY KEY,
@@ -439,6 +451,21 @@ export function getAllOrgData(orgId: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const r of rows) { try { result[r.key] = JSON.parse(r.value); } catch { result[r.key] = r.value; } }
   return result;
+}
+
+export function getAllOrgIds(): string[] {
+  const rows = db.prepare(`
+    SELECT org_id FROM org_data
+    UNION
+    SELECT org_id FROM employees
+    UNION
+    SELECT org_id FROM transactions
+    UNION
+    SELECT org_id FROM payroll_runs
+    UNION
+    SELECT org_id FROM invoices
+  `).all() as { org_id: string }[];
+  return rows.map((r) => r.org_id).filter(Boolean);
 }
 
 // ─── One-time migration from kv_store blobs → domain tables ──────────────────
@@ -833,6 +860,48 @@ export function checkpointDatabase(): void {
   } catch (err) {
     console.warn('[db] wal_checkpoint failed:', (err as Error).message);
   }
+}
+
+export interface StripeEventRow {
+  event_id: string;
+  org_id: string;
+  event_type: string;
+  idempotency_key: string | null;
+  payload: string;
+  received_at: string;
+  processed_at: string | null;
+}
+
+export function insertStripeEventIfNew(params: {
+  eventId: string;
+  orgId: string;
+  eventType: string;
+  idempotencyKey?: string | null;
+  payload: unknown;
+}): { inserted: boolean } {
+  const info = db.prepare(`
+    INSERT OR IGNORE INTO stripe_events
+      (event_id, org_id, event_type, idempotency_key, payload, processed_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    params.eventId,
+    params.orgId,
+    params.eventType,
+    params.idempotencyKey ?? null,
+    JSON.stringify(params.payload),
+  );
+  return { inserted: info.changes > 0 };
+}
+
+export function listStripeEvents(orgId: string, limit = 100): StripeEventRow[] {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  return db.prepare(`
+    SELECT event_id, org_id, event_type, idempotency_key, payload, received_at, processed_at
+    FROM stripe_events
+    WHERE org_id = ?
+    ORDER BY received_at DESC
+    LIMIT ?
+  `).all(orgId, safeLimit) as StripeEventRow[];
 }
 
 // Run migration on module load

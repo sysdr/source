@@ -1,0 +1,145 @@
+{
+  "meta": {
+    "artifact": "implementation_backlog",
+    "version": "1.0.0",
+    "phase": "build-kickoff",
+    "cycle": 1
+  },
+  "execution_order": [
+    "EPIC-01",
+    "EPIC-02",
+    "EPIC-03",
+    "EPIC-04",
+    "EPIC-05",
+    "EPIC-06",
+    "EPIC-07",
+    "EPIC-08"
+  ],
+  "epics": [
+    {
+      "id": "EPIC-01",
+      "name": "Core Foundation and Security Baseline",
+      "priority": "P0",
+      "requirements": ["REQ-026", "REQ-027", "REQ-028", "REQ-030", "REQ-032", "REQ-067", "REQ-068", "REQ-071", "REQ-072"],
+      "tasks": [
+        {"id": "T-001", "title": "Migrate persistence to SQLite as system of record with repository layer", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-002", "title": "Implement role model and API authorization middleware", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-003", "title": "Implement PII encryption and masking utilities", "owner": "backend", "test_gate": "unit"},
+        {"id": "T-004", "title": "Add immutable audit event schema and write path", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-005", "title": "Add backup/restore automation with RTO-RPO checks", "owner": "devops", "test_gate": "integration"},
+        {"id": "T-006", "title": "Enforce CI dependency scan and fail on high CVEs", "owner": "devops", "test_gate": "pipeline"}
+      ]
+    },
+    {
+      "id": "EPIC-02",
+      "name": "Compliance Export Correctness Wave",
+      "priority": "P0",
+      "requirements": ["REQ-007", "REQ-008", "REQ-009", "REQ-014", "REQ-029", "REQ-048", "REQ-049", "REQ-054", "REQ-055"],
+      "tasks": [
+        {"id": "T-007", "title": "Build schema-validation pipeline for filing exports", "owner": "backend", "test_gate": "contract"},
+        {"id": "T-008", "title": "Implement GSTR-1 and GSTR-3B JSON generators", "owner": "backend", "test_gate": "contract"},
+        {"id": "T-009", "title": "Implement Form 24Q CSV generator", "owner": "backend", "test_gate": "contract"},
+        {"id": "T-010", "title": "Implement Form 5472 preparation engine", "owner": "backend", "test_gate": "contract"},
+        {"id": "T-011", "title": "Inject mandatory export disclaimer in UI and file metadata", "owner": "frontend", "test_gate": "e2e"},
+        {"id": "T-012", "title": "Show deferred filing outputs as explicit Coming Soon", "owner": "frontend", "test_gate": "e2e"}
+      ]
+    },
+    {
+      "id": "EPIC-03",
+      "name": "Revenue Ingestion and Reliability",
+      "priority": "P1",
+      "requirements": ["REQ-006", "REQ-044", "REQ-045", "REQ-046", "REQ-077", "REQ-078"],
+      "tasks": [
+        {"id": "T-013", "title": "Refactor Stripe sync into resilient ingestion service", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-014", "title": "Implement retry/backoff policy for external APIs", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-015", "title": "Add webhook endpoint with idempotent event store", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-016", "title": "Normalize transactions into canonical schema", "owner": "backend", "test_gate": "unit"}
+      ]
+    },
+    {
+      "id": "EPIC-04",
+      "name": "Payroll and TDS Operationalization",
+      "priority": "P1",
+      "requirements": ["REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-035", "REQ-037", "REQ-059", "REQ-062", "REQ-076"],
+      "tasks": [
+        {"id": "T-017", "title": "Implement payroll pre-validation and row-level failure report", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-018", "title": "Implement payroll batch execution and outputs bundle", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-019", "title": "Implement ESI and vendor-TDS rules engine", "owner": "backend", "test_gate": "unit"},
+        {"id": "T-020", "title": "Implement Form 26Q and EPF ECR exporters", "owner": "backend", "test_gate": "contract"},
+        {"id": "T-021", "title": "Build employee edit workflow with field validations", "owner": "frontend", "test_gate": "e2e"}
+      ]
+    },
+    {
+      "id": "EPIC-05",
+      "name": "Accounting, Reconciliation, and Close",
+      "priority": "P1",
+      "requirements": ["REQ-015", "REQ-023", "REQ-042", "REQ-058", "REQ-060", "REQ-061", "REQ-063", "REQ-079", "REQ-081"],
+      "tasks": [
+        {"id": "T-022", "title": "Add period-close lock and year-end closing entries", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-023", "title": "Build reconciliation workbench (ledger/bank/stripe)", "owner": "frontend", "test_gate": "e2e"},
+        {"id": "T-024", "title": "Implement multi-currency conversion and FX gain/loss posting", "owner": "backend", "test_gate": "unit"},
+        {"id": "T-025", "title": "Implement fixed asset register and depreciation posting", "owner": "backend", "test_gate": "unit"},
+        {"id": "T-026", "title": "Add Indian bank statement CSV import and matching", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-027", "title": "Build Tally-compatible export format", "owner": "backend", "test_gate": "contract"}
+      ]
+    },
+    {
+      "id": "EPIC-06",
+      "name": "Compliance UX and Filing Operations",
+      "priority": "P1",
+      "requirements": ["REQ-002", "REQ-004", "REQ-017", "REQ-018", "REQ-019", "REQ-036", "REQ-038", "REQ-039", "REQ-041", "REQ-080"],
+      "tasks": [
+        {"id": "T-028", "title": "Build filing calendar with readiness and blockers", "owner": "frontend", "test_gate": "e2e"},
+        {"id": "T-029", "title": "Build dynamic compliance status engine", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-030", "title": "Implement manual filing acknowledgements and evidence links", "owner": "frontend", "test_gate": "e2e"},
+        {"id": "T-031", "title": "Implement FIRC/ODI data-backed tracking views", "owner": "backend", "test_gate": "integration"}
+      ]
+    },
+    {
+      "id": "EPIC-07",
+      "name": "Auth, Access, and Collaboration",
+      "priority": "P1",
+      "requirements": ["REQ-070", "REQ-072", "REQ-073", "REQ-074", "REQ-075"],
+      "tasks": [
+        {"id": "T-032", "title": "Implement single-writer session guardrails with read-only collaborator sessions", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-033", "title": "Build accountant invite/token flow (72-hour read-only link)", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-034", "title": "Implement responsive UX baseline for key screens", "owner": "frontend", "test_gate": "e2e"},
+        {"id": "T-035", "title": "Implement standardized async loading/success/error states", "owner": "frontend", "test_gate": "e2e"}
+      ]
+    },
+    {
+      "id": "EPIC-08",
+      "name": "Observability, Performance, and Verification",
+      "priority": "P1",
+      "requirements": ["REQ-031", "REQ-033", "REQ-034", "REQ-043", "REQ-047", "REQ-051", "REQ-052", "REQ-057", "REQ-064", "REQ-065", "REQ-066", "REQ-069"],
+      "tasks": [
+        {"id": "T-036", "title": "Implement SLO instrumentation for latency and batch runtimes", "owner": "backend", "test_gate": "load"},
+        {"id": "T-037", "title": "Implement FX provider integration and staleness checks", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-038", "title": "Move financial math to decimal-safe utility layer", "owner": "backend", "test_gate": "unit"},
+        {"id": "T-039", "title": "Implement SMTP reminder and outcome notifications", "owner": "backend", "test_gate": "integration"},
+        {"id": "T-040", "title": "Wire AI assistant fallback and invoice analysis entrypoint", "owner": "frontend", "test_gate": "integration"},
+        {"id": "T-041", "title": "Define accessibility checks (WCAG AA) in CI test suite", "owner": "qa", "test_gate": "pipeline"},
+        {"id": "T-042", "title": "Add acceptance demo script for differentiation claims", "owner": "qa", "test_gate": "manual-demo"}
+      ]
+    }
+  ],
+  "definition_of_done": {
+    "engineering": [
+      "All tasks linked to REQ ids",
+      "No lint or type errors",
+      "Feature flags for high-blast-radius changes",
+      "Migrations and rollback notes present"
+    ],
+    "verification": [
+      "Contract tests pass for filing formats",
+      "Integration tests pass for Stripe/webhooks/bank CSV",
+      "E2E tests pass for payroll and compliance hub",
+      "Traceability audit has zero orphan REQs"
+    ],
+    "release_gate": [
+      "Security scan green",
+      "Backup restore rehearsal evidence attached",
+      "Demo script passes with seeded data"
+    ]
+  }
+}

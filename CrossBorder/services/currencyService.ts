@@ -2,6 +2,12 @@ import { CompanyProfile } from '../types';
 import { getCompanyProfile, getManualUsdToInrRate, getUIState, StorageKeys } from './storageService';
 import { USD_TO_INR } from '../constants';
 import { get as psGet, setIfChanged, PersistentKeys } from './persistentStorage';
+import { roundMoney } from './decimalMath';
+import {
+  assessFxStaleness,
+  shouldRefreshFxRate,
+  type FxRateSnapshot,
+} from './fxStaleness';
 
 export type BaseCurrency = 'INR' | 'USD';
 
@@ -35,19 +41,64 @@ export function getDisplayCurrency(): BaseCurrency {
 const fxCache: Record<string, number> = {};
 const DEFAULT_USD_INR = USD_TO_INR;
 let todayUsdInrCache: number | null = null;
+let todayUsdInrSnapshot: FxRateSnapshot | null = null;
 
 /** Load today's USD/INR from persistent storage into memory (e.g. after refresh). */
 function loadPersistedTodayRate(): void {
   try {
     const today = psGet<number>(PersistentKeys.todayUsdInr);
-    if (typeof today === 'number' && today > 0) todayUsdInrCache = today;
+    if (typeof today === 'number' && today > 0) {
+      todayUsdInrCache = today;
+      const meta = psGet<{ fetchedAt?: string; source?: FxRateSnapshot['source'] }>(PersistentKeys.todayUsdInr + ':meta');
+      todayUsdInrSnapshot = {
+        rate: today,
+        fetchedAt: meta?.fetchedAt ?? new Date(0).toISOString(),
+        source: meta?.source ?? 'cache',
+        pair: 'USD/INR',
+      };
+    }
   } catch {
     // ignore
   }
 }
 loadPersistedTodayRate();
 
+function persistTodaySnapshot(snapshot: FxRateSnapshot): void {
+  todayUsdInrCache = snapshot.rate;
+  todayUsdInrSnapshot = snapshot;
+  setIfChanged(PersistentKeys.todayUsdInr, snapshot.rate, { namespace: 'fetch' });
+  setIfChanged(`${PersistentKeys.todayUsdInr}:meta`, {
+    fetchedAt: snapshot.fetchedAt,
+    source: snapshot.source,
+  }, { namespace: 'fetch' });
+}
+
+/** Current USD/INR snapshot + staleness (REQ-033). */
+export function getTodayFxStatus() {
+  const snapshot = todayUsdInrSnapshot
+    ?? (todayUsdInrCache
+      ? {
+          rate: todayUsdInrCache,
+          fetchedAt: new Date(0).toISOString(),
+          source: 'cache' as const,
+          pair: 'USD/INR',
+        }
+      : null);
+  return assessFxStaleness(snapshot);
+}
+
 const FRANKFURTER_CURRENCIES = new Set(['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HRK', 'HUF', 'IDR', 'ILS', 'INR', 'ISK', 'JPY', 'KRW', 'MXN', 'MYR', 'NOK', 'NZD', 'PHP', 'PLN', 'RON', 'RUB', 'SEK', 'SGD', 'THB', 'TRY', 'USD', 'ZAR']);
+
+/** Browser FX goes through our API (avoids Frankfurter CORS). Server / Node can call Frankfurter directly. */
+function fxEndpoint(pathAndQuery: string): string {
+  const serverBase =
+    (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
+    ?? 'http://localhost:3001';
+  if (typeof window !== 'undefined') {
+    return `${serverBase}/api/fx${pathAndQuery}`;
+  }
+  return `https://api.frankfurter.app${pathAndQuery}`;
+}
 
 /** Fetch historical FX rate for a date (withdrawal/settlement date) */
 export async function getFxRateForDate(date: string, from: string, to: string): Promise<number> {
@@ -66,7 +117,7 @@ export async function getFxRateForDate(date: string, from: string, to: string): 
     const fromCode = FRANKFURTER_CURRENCIES.has(fromUpper) ? fromUpper : 'USD';
     const toCode = FRANKFURTER_CURRENCIES.has(toUpper) ? toUpper : 'USD';
     const res = await fetch(
-      `https://api.frankfurter.app/${date}?from=${fromCode}&to=${toCode}`,
+      fxEndpoint(`/${date}?from=${fromCode}&to=${toCode}`),
       { signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) throw new Error('FX API failed');
@@ -95,14 +146,13 @@ export async function convertToBaseCurrency(
   baseCurrency: BaseCurrency
 ): Promise<{ amount: number; fxRate: number; fxRateDate: string }> {
   const from = (fromCurrency?.toUpperCase() || 'USD') as string;
-  if (from === baseCurrency) return { amount, fxRate: 1, fxRateDate: date };
+  if (from === baseCurrency) return { amount: roundMoney(amount), fxRate: 1, fxRateDate: date };
   if (!FRANKFURTER_CURRENCIES.has(from)) {
     return convertToBaseCurrency(amount, 'USD', date, baseCurrency);
   }
   const rate = await getFxRateForDate(date, from, baseCurrency);
   if (rate <= 0) return { amount: 0, fxRate: 0, fxRateDate: date };
-  const converted = amount * rate;
-  return { amount: Math.round(converted * 100) / 100, fxRate: rate, fxRateDate: date };
+  return { amount: roundMoney(amount * rate), fxRate: rate, fxRateDate: date };
 }
 
 /** Synchronous conversion using default rate (when async not needed) */
@@ -111,34 +161,58 @@ export function convertToBaseSync(
   fromCurrency: 'USD' | 'INR',
   baseCurrency: BaseCurrency
 ): number {
-  if (fromCurrency === baseCurrency) return amount;
-  if (fromCurrency === 'USD' && baseCurrency === 'INR') return amount * DEFAULT_USD_INR;
-  if (fromCurrency === 'INR' && baseCurrency === 'USD') return amount / DEFAULT_USD_INR;
-  return amount;
+  if (fromCurrency === baseCurrency) return roundMoney(amount);
+  if (fromCurrency === 'USD' && baseCurrency === 'INR') return roundMoney(amount * DEFAULT_USD_INR);
+  if (fromCurrency === 'INR' && baseCurrency === 'USD') return roundMoney(amount / DEFAULT_USD_INR);
+  return roundMoney(amount);
 }
 
 /** Fetch today's USD to INR rate. Caches result. Persists only when changed. Uses manual override if set. */
-export async function fetchTodayUsdToInrRate(): Promise<number> {
+export async function fetchTodayUsdToInrRate(opts?: { force?: boolean }): Promise<number> {
   const manual = getManualUsdToInrRate();
-  if (manual) return manual;
+  if (manual) {
+    persistTodaySnapshot({
+      rate: manual,
+      fetchedAt: new Date().toISOString(),
+      source: 'manual',
+      pair: 'USD/INR',
+    });
+    return manual;
+  }
+
+  const status = getTodayFxStatus();
+  if (!opts?.force && todayUsdInrCache && !shouldRefreshFxRate(status)) {
+    return todayUsdInrCache;
+  }
+
   try {
     const res = await fetch(
-      'https://api.frankfurter.app/latest?from=USD&to=INR',
+      fxEndpoint('/latest?from=USD&to=INR'),
       { signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) throw new Error('FX API failed');
     const data = await res.json();
     const rate = data?.rates?.INR;
     if (typeof rate === 'number') {
-      todayUsdInrCache = rate;
-      setIfChanged(PersistentKeys.todayUsdInr, rate, { namespace: 'fetch' });
+      persistTodaySnapshot({
+        rate,
+        fetchedAt: new Date().toISOString(),
+        source: 'frankfurter',
+        pair: 'USD/INR',
+      });
       return rate;
     }
   } catch {
-    // Fallback
+    // Fallback to last known
   }
-  todayUsdInrCache = DEFAULT_USD_INR;
-  return DEFAULT_USD_INR;
+  const fallback = todayUsdInrCache ?? DEFAULT_USD_INR;
+  persistTodaySnapshot({
+    rate: fallback,
+    fetchedAt: todayUsdInrSnapshot?.fetchedAt ?? new Date(0).toISOString(),
+    source: todayUsdInrCache ? 'cache' : 'fallback',
+    pair: 'USD/INR',
+  });
+  return fallback;
 }
 
 /** Get today's USD→INR rate (sync). Manual override > cached > default. */
@@ -150,7 +224,12 @@ export function getTodayUsdToInrRate(): number {
 
 /** Update cached today rate (call after fetchTodayUsdToInrRate). */
 export function setTodayUsdInrCache(rate: number): void {
-  todayUsdInrCache = rate;
+  persistTodaySnapshot({
+    rate,
+    fetchedAt: new Date().toISOString(),
+    source: 'cache',
+    pair: 'USD/INR',
+  });
 }
 
 /** Format amount in base currency for display (no rounding; show decimals as-is) */

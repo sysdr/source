@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { Employee, CompanyProfile } from '../../types';
 import { checkMinimumWage } from '../../services/payrollCalculator';
+import {
+  normalizeEmployeeFields,
+  validateEmployeeFields,
+} from '../../services/employeeFieldValidation';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,18 +102,24 @@ const EmployeeDirectory: React.FC<Props> = ({
   }, [employees, search, statusFilter, deptFilter]);
 
   const handleAddEmployee = () => {
-    if (!newEmployee.name?.trim() || !newEmployee.email?.trim()) {
-      toast('error', 'Name and Email are required');
-      return;
-    }
-    if ((newEmployee.ctc ?? 0) <= 0) {
-      toast('error', 'CTC must be greater than 0');
+    const normalized = normalizeEmployeeFields({
+      ...EMPTY_EMPLOYEE,
+      ...newEmployee,
+    });
+    const validation = validateEmployeeFields(normalized);
+    if (!validation.ok) {
+      toast('error', validation.messages[0] || 'Validation failed');
       return;
     }
     const emp: Employee = {
       ...EMPTY_EMPLOYEE as Employee,
-      ...newEmployee as Employee,
+      ...normalized as Employee,
       id: `EMP-${uid()}`,
+      documents: {
+        pan: !!(normalized.panNumber),
+        aadhaar: !!(normalized.aadhaarNumber),
+        contract: normalized.documents?.contract ?? false,
+      },
     };
     onUpsertEmployee(emp);
     setShowAddModal(false);
@@ -119,7 +129,21 @@ const EmployeeDirectory: React.FC<Props> = ({
 
   const handleUpdateEmployee = () => {
     if (!editingEmployee) return;
-    onUpsertEmployee(editingEmployee);
+    const normalized = normalizeEmployeeFields(editingEmployee);
+    const validation = validateEmployeeFields(normalized);
+    if (!validation.ok) {
+      toast('error', validation.messages.join('; '));
+      return;
+    }
+    const emp: Employee = {
+      ...normalized,
+      documents: {
+        pan: !!(normalized.panNumber),
+        aadhaar: !!(normalized.aadhaarNumber),
+        contract: normalized.documents?.contract ?? false,
+      },
+    };
+    onUpsertEmployee(emp);
     setEditingEmployee(null);
     toast('success', 'Employee updated');
   };

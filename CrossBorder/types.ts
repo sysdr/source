@@ -15,8 +15,12 @@ export interface EntityProfile {
   name: string;
   type: string;
   taxId: string; // GSTIN or EIN
+  /** US Employer Identification Number (alias of taxId for US entities) */
+  ein?: string;
   pan?: string;
   tan?: string;
+  /** EPFO establishment / PF code when registered */
+  epfNumber?: string;
   llpin?: string;
   incorporationDate?: string;
   address?: string;
@@ -281,12 +285,17 @@ export interface FixedAsset {
   category: string;
   purchaseDate: string;
   cost: number;
-  /** IT Act WDV depreciation rate % */
+  /** IT Act WDV depreciation rate % (also used as SLM rate when usefulLifeYears unset) */
   depreciationRate: number;
   /** Accumulated depreciation to date */
   accumulated: number;
+  /** Depreciation method — defaults to WDV when omitted (legacy rows) */
+  method?: 'SLM' | 'WDV';
+  /** Useful life in years (SLM) */
+  usefulLifeYears?: number;
   entity?: 'parent' | 'subsidiary';
   createdAt: string;
+  disposedAt?: string;
 }
 
 export interface PendingTransaction {
@@ -665,7 +674,12 @@ export interface FilingTask {
   dueDate: string;
   status: FilingTaskStatus;
   filedDate?: string;
+  /** Portal acknowledgement / ARN / challan number (REQ-080 manual entry) */
+  acknowledgementNumber?: string;
+  /** Vault doc ids or external evidence URLs */
   documentIds?: string[];
+  /** Evidence URLs (receipt PDFs, portal screenshots, CA emails) */
+  evidenceLinks?: string[];
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -675,6 +689,7 @@ export interface FilingTask {
 
 export type RemittanceDirection = 'Inward' | 'Outward';
 export type RemittancePurpose = 'Export' | 'Software' | 'Royalty' | 'TransferPricing' | 'Dividend' | 'Other';
+export type FircStatus = 'Pending' | 'Received' | 'Matched' | 'NotRequired';
 
 export interface RemittanceRecord {
   id: string;
@@ -686,6 +701,25 @@ export interface RemittanceRecord {
   reference?: string;
   customerOrVendorId?: string;
   softExNumber?: string;
+  /** Explicit FIRC tracking (REQ-018 / REQ-039) */
+  fircStatus?: FircStatus;
+  fircNumber?: string;
+  fircReceivedDate?: string;
+  /** Ledger / bank credit matched to this inward remittance */
+  matchedTransactionId?: string;
+  form15CANumber?: string;
+  form15CBNumber?: string;
   documentIds?: string[];
   createdAt: string;
+}
+
+/** ODI (Overseas Direct Investment) profile for FEMA APR tracking (REQ-019) */
+export interface OdiProfile {
+  uin?: string;
+  investeeName?: string;
+  investmentAmountInr?: number;
+  lastAprFiledDate?: string;
+  nextAprDueDate?: string;
+  notes?: string;
+  updatedAt: string;
 }

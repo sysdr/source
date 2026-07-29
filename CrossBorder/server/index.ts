@@ -42,6 +42,8 @@ import {
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
   upsertInvite, getInviteByToken, listInvites, updateInviteStatus, deleteInvite,
+  insertStripeEventIfNew, listStripeEvents,
+  getAllOrgIds,
   checkpointDatabase,
 } from './db.js';
 import {
@@ -51,9 +53,86 @@ import {
   validate, validateArray,
 } from './schemas.js';
 import { reconcileOrg } from './reconciliation.js';
+import { buildThreeWayReconciliation, type Gstr2bClaim } from '../services/threeWayReconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
 import { rebuildKvFromDomain } from './rebuildKv.js';
+import {
+  decryptString,
+  decryptEmployeePII,
+  decryptOrgProfilePII,
+  encryptString,
+  encryptEmployeePII,
+  encryptOrgProfilePII,
+  maskEmployeePII,
+  countPlaintextEmployeePiiFields,
+  countPlaintextProfilePiiFields,
+  encryptionEnabled,
+} from './pii.js';
+import {
+  createBackup,
+  getBackupStatus,
+  listBackups,
+  verifyBackup,
+} from './backup.js';
+import { normalizeStripeObject } from './normalizeTransaction.js';
+import { runPayrollBatch, validatePayrollEmployees } from './payrollBatch.js';
+import {
+  VENDOR_TDS_SECTIONS,
+  applyVendorTdsToTransaction,
+  computeVendorTds,
+  evaluateEsi,
+  type PayeeType,
+} from '../services/tdsRules.js';
+import {
+  closeAccountingPeriod,
+  createAndOptionallyPostJournal,
+  listJournals,
+  listPeriodCloses,
+  periodStatus,
+  postJournal,
+  runYearEndCloseForOrg,
+  trialBalanceForOrg,
+} from './periodClose.js';
+import {
+  exportTallyCsv,
+  importBankStatementCsv,
+  listFixedAssets,
+  runDepreciationPosting,
+  upsertFixedAsset,
+} from './accountingExtras.js';
+import { getComplianceStatusForOrg } from './complianceStatus.js';
+import {
+  acknowledgeFilingForOrg,
+  applyFircMatchForOrg,
+  getFemaTrackingForOrg,
+  getOdiProfile,
+  setOdiProfile,
+} from './femaTracking.js';
+import {
+  claimWriter,
+  createAccountantInviteForOrg,
+  getWriterStatus,
+  heartbeatWriter,
+  listAccountantInvitesForOrg,
+  openAccountantInvite,
+  releaseWriter,
+  resolveAccountantTokenRole,
+  revokeAccountantInviteForOrg,
+} from './accessControl.js';
+import { classifyHttpPath, recordSloSample, summarizeSlo } from '../services/sloMetrics.js';
+import { buildFilingReminderEmail, selectFilingReminders } from '../services/filingReminders.js';
+import type { CompanyProfile, Employee, FilingTask, OdiProfile, PayrollConfig } from '../types.js';
+
+const SMTP_ORG_KEY = 'suez_smtp_settings';
+
+type StripeWebhookEvent = {
+  id?: string;
+  type?: string;
+  data?: {
+    object?: Record<string, unknown>;
+  };
+};
 
 const PORT = Number(process.env.PORT) || 3001;
 const getSuezApiKey = () => process.env.SUEZ_API_KEY || '';
@@ -65,6 +144,110 @@ const getCorsOrigins = () => (process.env.CORS_ORIGINS || 'http://localhost:9000
   .map((o) => o.trim())
   .filter(Boolean);
 const rateWindowByIp = new Map<string, number[]>();
+type RequestRole = 'owner' | 'accountant' | 'employee';
+
+const getRoleAuthEnabled = () => process.env.ENFORCE_ROLE_AUTH === 'true';
+
+function getRequestRole(req: http.IncomingMessage): RequestRole {
+  const tokenHeader = req.headers['x-suez-accountant-token'];
+  const token = typeof tokenHeader === 'string' ? tokenHeader.trim() : '';
+  if (token && resolveAccountantTokenRole(token)) return 'accountant';
+
+  const raw = req.headers['x-suez-role'];
+  const role = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (role === 'accountant' || role === 'employee') return role;
+  return 'owner';
+}
+
+function isWriteMethod(method: string | undefined): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'DELETE';
+}
+
+function isPublicWriteRoute(url: string): boolean {
+  return (
+    /^\/api\/invites\/token\/[^/]+\/complete$/.test(url)
+    || url === '/api/accountant-invites/open'
+    || url === '/api/session/writer/claim'
+    || url === '/api/session/writer/heartbeat'
+    || url === '/api/session/writer/release'
+  );
+}
+
+function canWrite(req: http.IncomingMessage, url: string): boolean {
+  if (!isWriteMethod(req.method)) return true;
+  if (isPublicWriteRoute(url)) return true;
+  const role = getRequestRole(req);
+  // Accountant / employee are always read-only (REQ-072 / REQ-073)
+  if (role === 'accountant' || role === 'employee') return false;
+  if (!getRoleAuthEnabled()) return true;
+  return role === 'owner';
+}
+
+function shouldRevealSensitive(req: http.IncomingMessage): boolean {
+  const flag = req.headers['x-show-sensitive'];
+  const requested = typeof flag === 'string' && flag.toLowerCase() === 'true';
+  return requested && getRequestRole(req) === 'owner';
+}
+
+function resolveOrgId(url: string, reqUrl: string, body?: Record<string, unknown>): string {
+  const qs = Object.fromEntries(new URL(reqUrl || '/', 'http://localhost').searchParams);
+  if (typeof body?.orgId === 'string' && body.orgId) return body.orgId;
+  if (typeof qs.orgId === 'string' && qs.orgId) return qs.orgId;
+  const orgMatch = url.match(/^\/api\/org\/([^/]+)/);
+  if (orgMatch) return decodeURIComponent(orgMatch[1]);
+  return 'default';
+}
+
+function writeAuditEvent(opts: {
+  req: http.IncomingMessage;
+  url: string;
+  method: string;
+  orgId: string;
+  action: string;
+  result: 'success' | 'denied' | 'error';
+  details?: Record<string, unknown>;
+}) {
+  try {
+    insertProcessed(opts.orgId, {
+      pipeline: 'audit_events',
+      label: `${opts.method} ${opts.url}`,
+      payload: {
+        at: new Date().toISOString(),
+        role: getRequestRole(opts.req),
+        method: opts.method,
+        path: opts.url,
+        action: opts.action,
+        result: opts.result,
+        ip: getClientIp(opts.req),
+        details: opts.details ?? {},
+      },
+    });
+  } catch (err) {
+    console.warn('[audit] failed to write audit event:', (err as Error).message);
+  }
+}
+
+function maybeEncryptOrgData(key: string, value: unknown): unknown {
+  if (key === 'suez_company_profile') return encryptOrgProfilePII(value);
+  if (key === 'suez_smtp_settings' && value && typeof value === 'object') {
+    const payload = value as Record<string, unknown>;
+    if (typeof payload.password === 'string') {
+      return { ...payload, password: encryptString(payload.password) };
+    }
+  }
+  return value;
+}
+
+function maybeDecryptOrgData(key: string, value: unknown): unknown {
+  if (key === 'suez_company_profile') return decryptOrgProfilePII(value);
+  if (key === 'suez_smtp_settings' && value && typeof value === 'object') {
+    const payload = value as Record<string, unknown>;
+    if (typeof payload.password === 'string') {
+      return { ...payload, password: decryptString(payload.password) };
+    }
+  }
+  return value;
+}
 
 function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -158,16 +341,261 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     res.writeHead(204, {
       ...corsHeaders(req),
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+      'Access-Control-Allow-Headers':
+        'Content-Type, Authorization, X-API-Key, X-SUEZ-ROLE, X-SUEZ-ACCOUNTANT-TOKEN',
+      'Access-Control-Max-Age': '86400',
     });
     res.end();
     return;
   }
 
   const url = req.url?.split('?')[0] ?? '';
+  if (!canWrite(req, url)) {
+    writeAuditEvent({
+      req,
+      url,
+      method: req.method || 'UNKNOWN',
+      orgId: resolveOrgId(url, req.url ?? '/'),
+      action: 'write_access_control',
+      result: 'denied',
+      details: { reason: 'non-owner role attempted write' },
+    });
+    respond(req, res, 403, { error: 'Write access denied for role' });
+    return;
+  }
 
   if (url === '/api/health') {
     respond(req, res, 200, { ok: true, ts: new Date().toISOString() });
+    return;
+  }
+
+  // Proxy Frankfurter FX so the browser never hits third-party CORS (console noise + failure).
+  if (req.method === 'GET' && (url === '/api/fx/latest' || /^\/api\/fx\/\d{4}-\d{2}-\d{2}$/.test(url))) {
+    const fxQs = Object.fromEntries(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    const from = typeof fxQs.from === 'string' && fxQs.from ? fxQs.from.toUpperCase() : 'USD';
+    const to = typeof fxQs.to === 'string' && fxQs.to ? fxQs.to.toUpperCase() : 'INR';
+    const datePart = url === '/api/fx/latest' ? 'latest' : url.slice('/api/fx/'.length);
+    try {
+      const upstream = await fetch(
+        `https://api.frankfurter.app/${datePart}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        { signal: AbortSignal.timeout(8000) },
+      );
+      if (!upstream.ok) {
+        respond(req, res, upstream.status, { error: 'FX upstream failed' });
+        return;
+      }
+      const data = await upstream.json();
+      respond(req, res, 200, data);
+    } catch (err) {
+      respond(req, res, 502, { error: 'FX proxy unreachable', detail: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── SLO metrics (REQ-031 / REQ-066 / T-036) ─────────────────────────────────
+  if (url === '/api/slo/metrics' && req.method === 'GET') {
+    const sloQs = Object.fromEntries(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    const op = typeof sloQs.operation === 'string' ? sloQs.operation : undefined;
+    const summaries = summarizeSlo(
+      op === 'ledger_query'
+        || op === 'payroll_batch'
+        || op === 'compliance_export'
+        || op === 'stripe_sync'
+        || op === 'ai_assistant'
+        || op === 'http_request'
+        ? op
+        : undefined,
+    );
+    respond(req, res, 200, {
+      ok: true,
+      ts: new Date().toISOString(),
+      summaries,
+    });
+    return;
+  }
+
+  if (url === '/api/admin/pii-migration-status' && req.method === 'GET') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    const orgIds = getAllOrgIds();
+    let employeeRowsScanned = 0;
+    let employeeRowsWithPlaintext = 0;
+    let employeePlaintextFields = 0;
+    let profileRowsScanned = 0;
+    let profileRowsWithPlaintext = 0;
+    let profilePlaintextFields = 0;
+    const orgsWithPlaintext: string[] = [];
+
+    for (const orgId of orgIds) {
+      let orgHasPlaintext = false;
+      const employees = getEmployees(orgId) as Record<string, unknown>[];
+      for (const employee of employees) {
+        employeeRowsScanned += 1;
+        const fieldCount = countPlaintextEmployeePiiFields(employee);
+        if (fieldCount > 0) {
+          employeeRowsWithPlaintext += 1;
+          employeePlaintextFields += fieldCount;
+          orgHasPlaintext = true;
+        }
+      }
+
+      const profile = getOrgData(orgId, 'suez_company_profile');
+      if (profile) {
+        profileRowsScanned += 1;
+        const fieldCount = countPlaintextProfilePiiFields(profile);
+        if (fieldCount > 0) {
+          profileRowsWithPlaintext += 1;
+          profilePlaintextFields += fieldCount;
+          orgHasPlaintext = true;
+        }
+      }
+
+      if (orgHasPlaintext) orgsWithPlaintext.push(orgId);
+    }
+
+    const remainingPlaintextRows = employeeRowsWithPlaintext + profileRowsWithPlaintext;
+    respond(req, res, 200, {
+      ok: true,
+      encryptionEnabled: encryptionEnabled(),
+      orgCount: orgIds.length,
+      employeeRowsScanned,
+      employeeRowsWithPlaintext,
+      employeePlaintextFields,
+      profileRowsScanned,
+      profileRowsWithPlaintext,
+      profilePlaintextFields,
+      remainingPlaintextRows,
+      migrationComplete: remainingPlaintextRows === 0,
+      orgsWithPlaintext,
+    });
+    return;
+  }
+
+  if (url === '/api/admin/pii-migrate' && req.method === 'POST') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    const orgIds = getAllOrgIds();
+    let employeeRowsUpdated = 0;
+    let profileRowsUpdated = 0;
+
+    for (const orgId of orgIds) {
+      const employees = getEmployees(orgId) as Record<string, unknown>[];
+      for (const employee of employees) {
+        const encrypted = encryptEmployeePII(employee);
+        if (JSON.stringify(encrypted) !== JSON.stringify(employee)) {
+          upsertEmployee(orgId, encrypted);
+          employeeRowsUpdated += 1;
+        }
+      }
+
+      const profile = getOrgData(orgId, 'suez_company_profile');
+      if (profile) {
+        const encryptedProfile = encryptOrgProfilePII(profile);
+        if (JSON.stringify(encryptedProfile) !== JSON.stringify(profile)) {
+          setOrgData(orgId, 'suez_company_profile', encryptedProfile);
+          profileRowsUpdated += 1;
+        }
+      }
+    }
+
+    writeAuditEvent({
+      req,
+      url,
+      method: req.method,
+      orgId: 'system',
+      action: 'pii_migration',
+      result: 'success',
+      details: {
+        orgCount: orgIds.length,
+        employeeRowsUpdated,
+        profileRowsUpdated,
+      },
+    });
+
+    respond(req, res, 200, {
+      ok: true,
+      orgCount: orgIds.length,
+      employeeRowsUpdated,
+      profileRowsUpdated,
+    });
+    return;
+  }
+
+  // ── Backup / restore (REQ-032, REQ-067) ─────────────────────────────────
+  if (url === '/api/admin/backup/status' && req.method === 'GET') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    respond(req, res, 200, getBackupStatus());
+    return;
+  }
+
+  if (url === '/api/admin/backup' && req.method === 'GET') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    respond(req, res, 200, { ok: true, backups: listBackups() });
+    return;
+  }
+
+  if (url === '/api/admin/backup' && req.method === 'POST') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const result = createBackup();
+      writeAuditEvent({
+        req,
+        url,
+        method: req.method,
+        orgId: 'system',
+        action: 'backup_create',
+        result: 'success',
+        details: { fileName: result.backup.fileName, sizeBytes: result.backup.sizeBytes },
+      });
+      respond(req, res, 200, result);
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/admin/backup/verify' && req.method === 'POST') {
+    const suzeApiKey = getSuezApiKey();
+    if (!suzeApiKey || getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const body = await parseBody(req);
+      const backupPath = typeof body.backupPath === 'string' ? body.backupPath : undefined;
+      const result = verifyBackup(backupPath);
+      writeAuditEvent({
+        req,
+        url,
+        method: req.method,
+        orgId: 'system',
+        action: 'backup_verify',
+        result: result.ok ? 'success' : 'failure',
+        details: { fileName: result.backup.fileName, checks: result.checks, error: result.error },
+      });
+      respond(req, res, result.ok ? 200 : 422, result);
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
     return;
   }
 
@@ -206,6 +634,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         return;
       }
       setKV(key, body.value);
+      writeAuditEvent({
+        req, url, method: req.method, orgId: resolveOrgId(url, req.url ?? '/', body),
+        action: 'storage_upsert', result: 'success', details: { key },
+      });
       respond(req, res, 200, { ok: true });
     } catch (err) {
       respond(req, res, 400, { error: (err as Error).message });
@@ -215,6 +647,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   if (url === '/api/storage' && req.method === 'DELETE') {
     clearKV();
+    writeAuditEvent({
+      req, url, method: req.method, orgId: resolveOrgId(url, req.url ?? '/'),
+      action: 'storage_clear', result: 'success',
+    });
     respond(req, res, 200, { ok: true });
     return;
   }
@@ -226,6 +662,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       return;
     }
     deleteKV(key);
+    writeAuditEvent({
+      req, url, method: req.method, orgId: resolveOrgId(url, req.url ?? '/'),
+      action: 'storage_delete', result: 'success', details: { key },
+    });
     respond(req, res, 200, { ok: true });
     return;
   }
@@ -283,19 +723,32 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const body = await parseBody(req);
       const orgId = typeof body.orgId === 'string' ? body.orgId : null;
       if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const payeeType = (typeof body.payeeType === 'string' ? body.payeeType : 'other') as PayeeType;
       if (Array.isArray(body.transactions)) {
-        const validationErrors = validateArray(TransactionSchema, body.transactions);
+        const enriched = body.transactions.map((tx) =>
+          applyVendorTdsToTransaction(tx as Record<string, unknown>, payeeType),
+        );
+        const validationErrors = validateArray(TransactionSchema, enriched);
         if (validationErrors.length) {
           respond(req, res, 422, { error: 'Validation failed for some transactions', validationErrors });
           return;
         }
-        bulkUpsertTransactions(orgId, body.transactions as Record<string, unknown>[]);
-        respond(req, res, 200, { ok: true, count: body.transactions.length });
+        bulkUpsertTransactions(orgId, enriched as Record<string, unknown>[]);
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'transactions_bulk_upsert', result: 'success', details: { count: enriched.length },
+        });
+        respond(req, res, 200, { ok: true, count: enriched.length });
       } else if (body.transaction) {
-        const err = validate(TransactionSchema, body.transaction);
+        const enriched = applyVendorTdsToTransaction(
+          body.transaction as Record<string, unknown>,
+          payeeType,
+        );
+        const err = validate(TransactionSchema, enriched);
         if (err) { respond(req, res, 422, { error: err }); return; }
-        upsertTransaction(orgId, body.transaction as Record<string, unknown>);
-        respond(req, res, 200, { ok: true });
+        upsertTransaction(orgId, enriched);
+        writeAuditEvent({ req, url, method: req.method, orgId, action: 'transaction_upsert', result: 'success' });
+        respond(req, res, 200, { ok: true, transaction: enriched });
       } else {
         respond(req, res, 400, { error: 'transactions[] or transaction{} required' });
       }
@@ -314,6 +767,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         const err = validate(TransactionUpdateSchema, body.transaction);
         if (err) { respond(req, res, 422, { error: err }); return; }
         upsertTransaction(orgId, body.transaction as Record<string, unknown>);
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'transaction_update', result: 'success', details: { id: txId },
+        });
         respond(req, res, 200, { ok: true });
       } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
       return;
@@ -322,6 +779,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const orgId = qs.orgId;
       if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
       deleteTransaction(orgId, txId);
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'transaction_delete', result: 'success', details: { id: txId },
+      });
       respond(req, res, 200, { ok: true });
       return;
     }
@@ -331,7 +792,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   if (url === '/api/employees' && req.method === 'GET') {
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
-    respond(req, res, 200, { employees: getEmployees(orgId) });
+    const employees = getEmployees(orgId).map((e) => decryptEmployeePII(e));
+    respond(req, res, 200, {
+      employees: shouldRevealSensitive(req) ? employees : employees.map((e) => maskEmployeePII(e)),
+    });
     return;
   }
 
@@ -346,12 +810,18 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           respond(req, res, 422, { error: 'Validation failed for some employees', validationErrors });
           return;
         }
-        bulkUpsertEmployees(orgId, body.employees as Record<string, unknown>[]);
+        const encryptedEmployees = (body.employees as Record<string, unknown>[]).map((e) => encryptEmployeePII(e));
+        bulkUpsertEmployees(orgId, encryptedEmployees);
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'employees_bulk_upsert', result: 'success', details: { count: body.employees.length },
+        });
         respond(req, res, 200, { ok: true, count: body.employees.length });
       } else if (body.employee) {
         const err = validate(EmployeeSchema, body.employee);
         if (err) { respond(req, res, 422, { error: err }); return; }
-        upsertEmployee(orgId, body.employee as Record<string, unknown>);
+        upsertEmployee(orgId, encryptEmployeePII(body.employee as Record<string, unknown>));
+        writeAuditEvent({ req, url, method: req.method, orgId, action: 'employee_upsert', result: 'success' });
         respond(req, res, 200, { ok: true });
       } else {
         respond(req, res, 400, { error: 'employees[] or employee{} required' });
@@ -368,10 +838,39 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         const body = await parseBody(req);
         const orgId = typeof body.orgId === 'string' ? body.orgId : null;
         if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+        if (!body.employee || typeof body.employee !== 'object') {
+          respond(req, res, 400, { error: 'employee{} required' });
+          return;
+        }
         const err = validate(EmployeeUpdateSchema, body.employee);
         if (err) { respond(req, res, 422, { error: err }); return; }
-        upsertEmployee(orgId, body.employee as Record<string, unknown>);
-        respond(req, res, 200, { ok: true });
+
+        const existingRaw = (getEmployees(orgId) as Record<string, unknown>[])
+          .find((e) => e.id === empId);
+        if (!existingRaw) {
+          respond(req, res, 404, { error: 'Employee not found' });
+          return;
+        }
+        const existing = decryptEmployeePII(existingRaw) as Record<string, unknown>;
+        const patch = body.employee as Record<string, unknown>;
+        const merged = {
+          ...existing,
+          ...patch,
+          id: empId,
+          documents: {
+            ...((existing.documents as Record<string, unknown> | undefined) || {}),
+            ...((patch.documents as Record<string, unknown> | undefined) || {}),
+          },
+        };
+        const fullErr = validate(EmployeeSchema, merged);
+        if (fullErr) { respond(req, res, 422, { error: fullErr }); return; }
+
+        upsertEmployee(orgId, encryptEmployeePII(merged));
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'employee_update', result: 'success', details: { id: empId },
+        });
+        respond(req, res, 200, { ok: true, employee: merged });
       } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
       return;
     }
@@ -379,9 +878,58 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const orgId = qs.orgId;
       if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
       deleteEmployee(orgId, empId);
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'employee_delete', result: 'success', details: { id: empId },
+      });
       respond(req, res, 200, { ok: true });
       return;
     }
+  }
+
+  // ── TDS / ESI rules (REQ-012, REQ-062 / T-019) ─────────────────────────────
+  if (url === '/api/tds/sections' && req.method === 'GET') {
+    respond(req, res, 200, { sections: VENDOR_TDS_SECTIONS });
+    return;
+  }
+
+  if (url === '/api/tds/compute' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const amount = Number(body.amount);
+      const section = typeof body.section === 'string' ? body.section : '';
+      if (!(amount > 0) || !section) {
+        respond(req, res, 400, { error: 'amount (>0) and section required' });
+        return;
+      }
+      const payeeType = (typeof body.payeeType === 'string' ? body.payeeType : 'other') as PayeeType;
+      const result = computeVendorTds({
+        amount,
+        section,
+        payeeType,
+        payeeName: typeof body.payeeName === 'string' ? body.payeeName : undefined,
+      });
+      respond(req, res, 200, { ok: true, ...result });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/esi/evaluate' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const monthlyGross = Number(body.monthlyGross);
+      const esiEnabled = body.esiEnabled === true;
+      if (!(monthlyGross >= 0) || Number.isNaN(monthlyGross)) {
+        respond(req, res, 400, { error: 'monthlyGross required' });
+        return;
+      }
+      respond(req, res, 200, { ok: true, ...evaluateEsi({ monthlyGross, esiEnabled }) });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
   }
 
   // ── Payroll runs ──────────────────────────────────────────────────────────
@@ -389,6 +937,106 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
     respond(req, res, 200, { runs: getPayrollRuns(orgId) });
+    return;
+  }
+
+  // POST /api/payroll/validate — pre-run row-level validation (REQ-059 / T-017)
+  if (url === '/api/payroll/validate' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+
+      let employees: Employee[];
+      if (Array.isArray(body.employees) && body.employees.length > 0) {
+        employees = body.employees as Employee[];
+      } else {
+        employees = getEmployees(orgId).map((e) => decryptEmployeePII(e) as Employee);
+      }
+
+      const report = validatePayrollEmployees(employees);
+      respond(req, res, 200, { ok: report.ok, orgId, ...report });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // POST /api/payroll/run — validate + execute batch with outputs bundle (REQ-011 / T-018)
+  if (url === '/api/payroll/run' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const month = typeof body.month === 'string' ? body.month : null;
+      const year = typeof body.year === 'number' ? body.year : Number(body.year);
+      if (!orgId || !month || !Number.isFinite(year)) {
+        respond(req, res, 400, { error: 'orgId, month, and year required' });
+        return;
+      }
+
+      let employees: Employee[];
+      if (Array.isArray(body.employees) && body.employees.length > 0) {
+        employees = body.employees as Employee[];
+      } else {
+        employees = getEmployees(orgId).map((e) => decryptEmployeePII(e) as Employee);
+      }
+
+      const profile = getOrgData(orgId, 'suez_company_profile') as CompanyProfile | null;
+      const payrollConfig = (body.payrollConfig as PayrollConfig | undefined)
+        || profile?.payroll
+        || null;
+
+      const existing = getPayrollRuns(orgId) as Array<{ month?: string; year?: number }>;
+      const monthName = /^\d{4}-\d{2}$/.test(month)
+        ? ['January','February','March','April','May','June','July','August','September','October','November','December'][Number(month.slice(5, 7)) - 1]
+        : month;
+      if (existing.some((r) => r.month === monthName && r.year === year)) {
+        respond(req, res, 409, { error: `Payroll for ${monthName} ${year} already exists` });
+        return;
+      }
+
+      const result = runPayrollBatch({
+        orgId,
+        month,
+        year,
+        employees,
+        payrollConfig,
+        lopByEmployeeId: (body.lopByEmployeeId as Record<string, number> | undefined) || undefined,
+        failClosed: body.failClosed === true,
+      });
+
+      if (!result.ok || !result.run) {
+        respond(req, res, 422, {
+          ok: false,
+          validation: result.validation,
+          error: result.error || 'Payroll batch failed',
+        });
+        return;
+      }
+
+      upsertPayrollRun(orgId, result.run as unknown as Record<string, unknown>);
+      writeAuditEvent({
+        req,
+        url,
+        method: req.method,
+        orgId,
+        action: 'payroll_batch_run',
+        result: 'success',
+        details: {
+          runId: result.run.id,
+          processed: result.run.employeeCount,
+          skipped: result.validation.failedCount,
+        },
+      });
+      respond(req, res, 200, {
+        ok: true,
+        run: result.run,
+        validation: result.validation,
+        outputs: result.outputs,
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
     return;
   }
 
@@ -400,6 +1048,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const err = validate(PayrollRunSchema, body.run);
       if (err) { respond(req, res, 422, { error: err }); return; }
       upsertPayrollRun(orgId, body.run as Record<string, unknown>);
+      writeAuditEvent({ req, url, method: req.method, orgId, action: 'payroll_upsert', result: 'success' });
       respond(req, res, 200, { ok: true });
     } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
     return;
@@ -411,6 +1060,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
     deletePayrollRun(orgId, runId);
+    writeAuditEvent({
+      req, url, method: req.method, orgId,
+      action: 'payroll_delete', result: 'success', details: { id: runId },
+    });
     respond(req, res, 200, { ok: true });
     return;
   }
@@ -431,6 +1084,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const err = validate(InvoiceSchema, body.invoice);
       if (err) { respond(req, res, 422, { error: err }); return; }
       upsertInvoice(orgId, body.invoice as Record<string, unknown>);
+      writeAuditEvent({ req, url, method: req.method, orgId, action: 'invoice_upsert', result: 'success' });
       respond(req, res, 200, { ok: true });
     } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
     return;
@@ -442,12 +1096,502 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
     deleteInvoice(orgId, invId);
+    writeAuditEvent({
+      req, url, method: req.method, orgId,
+      action: 'invoice_delete', result: 'success', details: { id: invId },
+    });
     respond(req, res, 200, { ok: true });
     return;
   }
 
+  // ── Period close + journals (REQ-060 / T-022) ─────────────────────────────
+  if (url === '/api/period-closes' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const period = qs.period;
+    const closes = listPeriodCloses(orgId);
+    if (period) {
+      respond(req, res, 200, { period, status: periodStatus(orgId, period), closes });
+      return;
+    }
+    respond(req, res, 200, { closes });
+    return;
+  }
+
+  if (url === '/api/period-closes' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const closedBy = typeof body.closedBy === 'string' ? body.closedBy : undefined;
+
+      if (body.yearEnd === true) {
+        const yearEndYear = Number(body.yearEndYear ?? body.year);
+        if (!Number.isFinite(yearEndYear)) {
+          respond(req, res, 400, { error: 'yearEndYear required for year-end close' });
+          return;
+        }
+        const result = runYearEndCloseForOrg(orgId, {
+          yearEndYear,
+          yearEndMonth: body.yearEndMonth != null ? Number(body.yearEndMonth) : 12,
+          closedBy,
+          currency: body.currency === 'USD' ? 'USD' : 'INR',
+        });
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'year_end_close', result: 'success',
+          details: { yearEndYear, retainedEarnings: result.retainedEarningsAmount },
+        });
+        respond(req, res, 200, { ok: true, ...result });
+        return;
+      }
+
+      const period = typeof body.period === 'string' ? body.period : '';
+      if (!/^\d{4}-\d{2}$/.test(period)) {
+        respond(req, res, 400, { error: 'period (YYYY-MM) required' });
+        return;
+      }
+      const pc = closeAccountingPeriod(orgId, period, closedBy);
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'period_close', result: 'success', details: { period },
+      });
+      respond(req, res, 200, { ok: true, periodClose: pc });
+    } catch (err) {
+      const msg = (err as Error).message;
+      const status = /already closed|locked/i.test(msg) ? 409 : 400;
+      respond(req, res, status, { error: msg });
+    }
+    return;
+  }
+
+  if (url === '/api/journals' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    respond(req, res, 200, {
+      journals: listJournals(orgId),
+      trialBalance: trialBalanceForOrg(orgId, qs.period),
+    });
+    return;
+  }
+
+  if (url === '/api/journals' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const entry = body.entry || body;
+      const je = createAndOptionallyPostJournal(orgId, {
+        date: String(entry.date),
+        description: String(entry.description || 'Manual entry'),
+        lines: Array.isArray(entry.lines) ? entry.lines : [],
+        post: entry.post !== false && body.post !== false,
+        createdBy: typeof body.createdBy === 'string' ? body.createdBy : undefined,
+      });
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'journal_create', result: 'success', details: { id: je.id, period: je.period },
+      });
+      respond(req, res, 200, { ok: true, journal: je });
+    } catch (err) {
+      const msg = (err as Error).message;
+      const status = /locked/i.test(msg) ? 422 : 400;
+      respond(req, res, status, { error: msg });
+    }
+    return;
+  }
+
+  const journalPostMatch = url.match(/^\/api\/journals\/([^/]+)\/post$/);
+  if (journalPostMatch && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const je = postJournal(orgId, decodeURIComponent(journalPostMatch[1]));
+      respond(req, res, 200, { ok: true, journal: je });
+    } catch (err) {
+      const msg = (err as Error).message;
+      const status = /locked/i.test(msg) ? 422 : 400;
+      respond(req, res, status, { error: msg });
+    }
+    return;
+  }
+
+  // ── Bank CSV import (REQ-079 / T-026) ──────────────────────────────────────
+  if (url === '/api/bank-statements/import' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const csv = typeof body.csv === 'string' ? body.csv : '';
+      if (!orgId || !csv.trim()) {
+        respond(req, res, 400, { error: 'orgId and csv required' });
+        return;
+      }
+      const report = importBankStatementCsv(orgId, csv, {
+        dateWindowDays: body.dateWindowDays != null ? Number(body.dateWindowDays) : 3,
+        persistUnmatched: body.persistUnmatched !== false,
+      });
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'bank_statement_import', result: 'success',
+        details: {
+          matched: report.matchedCount,
+          unmatched: report.unmatchedCount,
+          ambiguous: report.ambiguousCount,
+        },
+      });
+      respond(req, res, 200, { ok: true, ...report });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── Fixed assets (REQ-063 / T-025) ─────────────────────────────────────────
+  if (url === '/api/fixed-assets' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    respond(req, res, 200, { assets: listFixedAssets(orgId) });
+    return;
+  }
+
+  if (url === '/api/fixed-assets' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId || !body.asset) {
+        respond(req, res, 400, { error: 'orgId and asset required' });
+        return;
+      }
+      const asset = upsertFixedAsset(orgId, body.asset);
+      respond(req, res, 200, { ok: true, asset });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/fixed-assets/depreciate' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const period = typeof body.period === 'string' ? body.period : '';
+      if (!orgId || !period) {
+        respond(req, res, 400, { error: 'orgId and period required' });
+        return;
+      }
+      const result = runDepreciationPosting(orgId, {
+        period,
+        date: typeof body.date === 'string' ? body.date : undefined,
+        periodFraction: body.periodFraction != null ? Number(body.periodFraction) : undefined,
+      });
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'fixed_asset_depreciate', result: 'success',
+        details: { period, assetCount: result.computations.length },
+      });
+      respond(req, res, 200, { ok: true, ...result });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── Tally export (REQ-081 / T-027) ─────────────────────────────────────────
+  if (url === '/api/exports/tally' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const exportResult = exportTallyCsv(orgId, qs.period);
+    respond(req, res, 200, { ok: true, ...exportResult });
+    return;
+  }
+
+  // ── Single-writer session (REQ-070 / T-032) ────────────────────────────────
+  if (url === '/api/session/writer' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    respond(req, res, 200, { ok: true, ...getWriterStatus(orgId) });
+    return;
+  }
+
+  if (url === '/api/session/writer/claim' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+      if (!orgId || !sessionId) {
+        respond(req, res, 400, { error: 'orgId and sessionId required' });
+        return;
+      }
+      const result = claimWriter(orgId, sessionId, typeof body.label === 'string' ? body.label : undefined);
+      if (result.status === 'conflict') {
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'writer_session_conflict', result: 'denied',
+          details: { sessionId, warning: result.warning },
+        });
+        respond(req, res, 409, { ok: false, ...result });
+        return;
+      }
+      respond(req, res, 200, { ok: true, ...result });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/session/writer/heartbeat' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+      if (!orgId || !sessionId) {
+        respond(req, res, 400, { error: 'orgId and sessionId required' });
+        return;
+      }
+      const result = heartbeatWriter(orgId, sessionId);
+      respond(req, res, 200, { ok: true, ...result });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/session/writer/release' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+      if (!orgId || !sessionId) {
+        respond(req, res, 400, { error: 'orgId and sessionId required' });
+        return;
+      }
+      const result = releaseWriter(orgId, sessionId);
+      respond(req, res, 200, { ok: true, ...result });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── Accountant 72h read-only invite (REQ-073 / T-033) ──────────────────────
+  if (url === '/api/accountant-invites' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    respond(req, res, 200, { ok: true, invites: listAccountantInvitesForOrg(orgId) });
+    return;
+  }
+
+  if (url === '/api/accountant-invites' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const email = typeof body.email === 'string' ? body.email.trim() : '';
+      if (!orgId || !email) {
+        respond(req, res, 400, { error: 'orgId and email required' });
+        return;
+      }
+      const host = req.headers.host || 'localhost:5173';
+      const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
+      const appBase = typeof body.appBase === 'string' && body.appBase
+        ? body.appBase
+        : `${proto}://${host}`;
+      const orgName = typeof body.orgName === 'string' ? body.orgName : undefined;
+      const created = createAccountantInviteForOrg({ orgId, email, orgName, appBase });
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'accountant_invite_create', result: 'success',
+        details: { email, expiresAt: created.invite.expiresAt },
+      });
+      respond(req, res, 200, { ok: true, ...created });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/accountant-invites/open' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const token = typeof body.token === 'string' ? body.token : '';
+      if (!token) { respond(req, res, 400, { error: 'token required' }); return; }
+      const result = openAccountantInvite(token);
+      if (result.ok === false) {
+        respond(req, res, 410, { ok: false, error: result.error });
+        return;
+      }
+      respond(req, res, 200, {
+        ok: true,
+        role: result.role,
+        invite: {
+          orgId: result.invite.orgId,
+          orgName: result.invite.orgName,
+          email: result.invite.email,
+          expiresAt: result.invite.expiresAt,
+          status: result.invite.status,
+        },
+        token,
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  const accountantRevokeMatch = url.match(/^\/api\/accountant-invites\/([^/]+)\/revoke$/);
+  if (accountantRevokeMatch && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : qs.orgId;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const inviteId = decodeURIComponent(accountantRevokeMatch[1]);
+      const result = revokeAccountantInviteForOrg(orgId, inviteId);
+      if (result.ok === false) {
+        respond(req, res, 404, { ok: false, error: result.error });
+        return;
+      }
+      respond(req, res, 200, { ok: true, invite: result.invite });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── Compliance status engine (REQ-002 / T-029) ─────────────────────────────
+  if (url === '/api/compliance/status' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    try {
+      const report = getComplianceStatusForOrg(orgId);
+      respond(req, res, 200, { ok: true, ...report });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── Filing acknowledgement (REQ-080 / T-030) ───────────────────────────────
+  if (url === '/api/filings/acknowledge' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const taskId = typeof body.taskId === 'string' ? body.taskId : null;
+      if (!orgId || !taskId) {
+        respond(req, res, 400, { error: 'orgId and taskId required' });
+        return;
+      }
+      const evidenceLinks = Array.isArray(body.evidenceLinks)
+        ? body.evidenceLinks.filter((x: unknown): x is string => typeof x === 'string')
+        : undefined;
+      const documentIds = Array.isArray(body.documentIds)
+        ? body.documentIds.filter((x: unknown): x is string => typeof x === 'string')
+        : undefined;
+      const result = acknowledgeFilingForOrg(orgId, taskId, {
+        acknowledgementNumber: typeof body.acknowledgementNumber === 'string' ? body.acknowledgementNumber : undefined,
+        filedDate: typeof body.filedDate === 'string' ? body.filedDate : undefined,
+        evidenceLinks,
+        documentIds,
+        notes: typeof body.notes === 'string' ? body.notes : undefined,
+      });
+      if (result.ok === false) {
+        respond(req, res, 400, { ok: false, errors: result.errors, warnings: result.warnings });
+        return;
+      }
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'filing_acknowledge', result: 'success',
+        details: { taskId, acknowledgementNumber: result.task.acknowledgementNumber },
+      });
+      respond(req, res, 200, { ok: true, task: result.task, warnings: result.warnings });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // ── FEMA FIRC / ODI tracking (REQ-018 / REQ-019 / T-031) ───────────────────
+  if (url === '/api/fema/tracking' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    try {
+      const report = getFemaTrackingForOrg(orgId);
+      respond(req, res, 200, { ok: true, ...report });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/fema/odi-profile' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    respond(req, res, 200, { ok: true, profile: getOdiProfile(orgId) });
+    return;
+  }
+
+  if (url === '/api/fema/odi-profile' && req.method === 'PUT') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+      const profile: OdiProfile = {
+        uin: typeof body.uin === 'string' ? body.uin : undefined,
+        investeeName: typeof body.investeeName === 'string' ? body.investeeName : undefined,
+        investmentAmountInr: typeof body.investmentAmountInr === 'number' ? body.investmentAmountInr : undefined,
+        lastAprFiledDate: typeof body.lastAprFiledDate === 'string' ? body.lastAprFiledDate : undefined,
+        nextAprDueDate: typeof body.nextAprDueDate === 'string' ? body.nextAprDueDate : undefined,
+        notes: typeof body.notes === 'string' ? body.notes : undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      const saved = setOdiProfile(orgId, profile);
+      respond(req, res, 200, { ok: true, profile: saved });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/fema/firc-match' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const remittanceId = typeof body.remittanceId === 'string' ? body.remittanceId : null;
+      const transactionId = typeof body.transactionId === 'string' ? body.transactionId : null;
+      if (!orgId || !remittanceId || !transactionId) {
+        respond(req, res, 400, { error: 'orgId, remittanceId, and transactionId required' });
+        return;
+      }
+      const result = applyFircMatchForOrg(orgId, remittanceId, transactionId);
+      if (result.ok === false) {
+        respond(req, res, 400, { ok: false, error: result.error });
+        return;
+      }
+      respond(req, res, 200, { ok: true, remittance: result.remittance });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
   // ── Reconciliation ────────────────────────────────────────────────────────
-  // GET /api/reconciliation?orgId=&persist=true   → run checks; optional SQLite snapshot
+  // GET /api/reconciliation?orgId=&persist=true   → compliance guards
+  // GET /api/reconciliation/workbench?orgId=       → three-way panes (REQ-058)
+  if (url === '/api/reconciliation/workbench' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    try {
+      const transactions = queryTransactions({ orgId, limit: 10_000, offset: 0 }) as import('../types.js').Transaction[];
+      const claimsRaw = getOrgData(orgId, 'gstr2bClaims');
+      const gstr2bClaims = Array.isArray(claimsRaw) ? (claimsRaw as Gstr2bClaim[]) : [];
+      const threeWay = buildThreeWayReconciliation({ transactions, gstr2bClaims });
+      const compliance = reconcileOrg(orgId);
+      respond(req, res, 200, { ok: true, orgId, threeWay, compliance });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
   if (url === '/api/reconciliation' && req.method === 'GET') {
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
@@ -472,6 +1616,93 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // POST /api/stripe/sqlite-sync — server-side Stripe → SQLite (no browser mapping).
   // Auth: X-API-Key when SUEZ_API_KEY is set.
   // Body: { orgId, baseCurrency, stripeOrgConfig, entireHistory?, startDate?, endDate?, purge? }
+  if (url === '/api/stripe/webhook' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : 'default';
+      const event = body.event as StripeWebhookEvent | undefined;
+      const eventId = typeof event?.id === 'string' ? event.id : '';
+      const eventType = typeof event?.type === 'string' ? event.type : '';
+      if (!eventId || !eventType) {
+        respond(req, res, 400, { error: 'event.id and event.type required' });
+        return;
+      }
+
+      const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
+      const inserted = insertStripeEventIfNew({
+        eventId,
+        orgId,
+        eventType,
+        idempotencyKey,
+        payload: event,
+      });
+      if (!inserted.inserted) {
+        respond(req, res, 200, { ok: true, duplicate: true, eventId });
+        return;
+      }
+
+      // Canonicalize charge / payment_intent / refund events into ledger rows (REQ-078, T-016).
+      const obj = (event.data?.object || {}) as Record<string, unknown>;
+      const ingestable = eventType === 'charge.succeeded'
+        || eventType === 'payment_intent.succeeded'
+        || eventType === 'charge.refunded';
+      let normalizedId: string | undefined;
+      if (ingestable) {
+        const normalized = normalizeStripeObject(obj, {
+          webhookEventId: eventId,
+          eventType,
+          baseCurrency: body.baseCurrency === 'USD' ? 'USD' : 'INR',
+        });
+        if (!normalized.ok) {
+          respond(req, res, 422, { error: normalized.error, eventId, eventType });
+          return;
+        }
+        upsertTransaction(orgId, normalized.transaction);
+        normalizedId = String(normalized.transaction.id);
+      }
+
+      writeAuditEvent({
+        req,
+        url,
+        method: req.method,
+        orgId,
+        action: 'stripe_webhook_ingest',
+        result: 'success',
+        details: { eventId, eventType, duplicate: false, transactionId: normalizedId },
+      });
+      respond(req, res, 200, {
+        ok: true,
+        duplicate: false,
+        eventId,
+        ingested: ingestable,
+        transactionId: normalizedId,
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/stripe/events' && req.method === 'GET') {
+    const suzeApiKey = getSuezApiKey();
+    if (suzeApiKey && getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    const orgId = qs.orgId || 'default';
+    const limit = Number(qs.limit || 100);
+    const events = listStripeEvents(orgId, limit).map((row) => ({
+      eventId: row.event_id,
+      orgId: row.org_id,
+      eventType: row.event_type,
+      idempotencyKey: row.idempotency_key,
+      receivedAt: row.received_at,
+      processedAt: row.processed_at,
+    }));
+    respond(req, res, 200, { ok: true, events });
+    return;
+  }
+
   if (url === '/api/stripe/sqlite-sync' && req.method === 'POST') {
     const suzeApiKey = getSuezApiKey();
     if (suzeApiKey && getAuth(req) !== suzeApiKey) {
@@ -691,6 +1922,25 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
+  if (url === '/api/audit' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const rows = listProcessed(orgId, {
+      limit: qs.limit ? Number(qs.limit) : 200,
+      offset: qs.offset ? Number(qs.offset) : 0,
+      pipeline: 'audit_events',
+    });
+    const events = rows.map((r) => ({
+      id: r.id,
+      orgId: r.org_id,
+      at: r.created_at,
+      label: r.label,
+      payload: (() => { try { return JSON.parse(r.payload); } catch { return r.payload; } })(),
+    }));
+    respond(req, res, 200, { events });
+    return;
+  }
+
   if (url === '/api/processed' && req.method === 'POST') {
     try {
       const body = await parseBody(req);
@@ -748,11 +1998,15 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
     if (req.method === 'GET') {
       if (key) {
-        const val = getOrgData(orgId, key);
+        const val = maybeDecryptOrgData(key, getOrgData(orgId, key));
         if (val === null) { respond(req, res, 404, { error: 'Not found' }); return; }
         respond(req, res, 200, { key, value: val });
       } else {
-        respond(req, res, 200, getAllOrgData(orgId));
+        const orgData = getAllOrgData(orgId);
+        for (const dataKey of Object.keys(orgData)) {
+          orgData[dataKey] = maybeDecryptOrgData(dataKey, orgData[dataKey]);
+        }
+        respond(req, res, 200, orgData);
       }
       return;
     }
@@ -760,7 +2014,11 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     if (req.method === 'PUT' && key) {
       try {
         const body = await parseBody(req);
-        setOrgData(orgId, key, body.value);
+        setOrgData(orgId, key, maybeEncryptOrgData(key, body.value));
+        writeAuditEvent({
+          req, url, method: req.method, orgId,
+          action: 'org_data_put', result: 'success', details: { key },
+        });
         respond(req, res, 200, { ok: true });
       } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
       return;
@@ -857,7 +2115,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // GET  /api/smtp?orgId=          → settings without password
   // PUT  /api/smtp                 → { orgId, settings }
   // POST /api/smtp/test            → { orgId, to? } send test email
-  const SMTP_ORG_KEY = 'suez_smtp_settings';
 
   if (url === '/api/smtp' && req.method === 'GET') {
     const orgId = qs.orgId;
@@ -901,7 +2158,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         enabled: Boolean(incoming.enabled ?? existing.enabled ?? true),
         updatedAt: new Date().toISOString(),
       };
-      setOrgData(orgId, SMTP_ORG_KEY, merged);
+      setOrgData(orgId, SMTP_ORG_KEY, maybeEncryptOrgData(SMTP_ORG_KEY, merged));
       const { password: _p, ...safe } = merged;
       respond(req, res, 200, { ok: true, settings: { ...safe, hasPassword: !!merged.password } });
     } catch (err) {
@@ -915,7 +2172,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const body = await parseBody(req);
       const orgId = typeof body.orgId === 'string' ? body.orgId : null;
       if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
-      const raw = getOrgData(orgId, SMTP_ORG_KEY);
+      const raw = maybeDecryptOrgData(SMTP_ORG_KEY, getOrgData(orgId, SMTP_ORG_KEY));
       const cfg = normalizeSmtpConfig(raw);
       if (!cfg) {
         respond(req, res, 400, { error: 'SMTP is not configured. Save host, username, password, and from email first.' });
@@ -932,6 +2189,94 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       respond(req, res, 200, { ok: true, messageId: result.messageId, to });
     } catch (err) {
       respond(req, res, 500, { error: (err as Error).message || 'Failed to send test email' });
+    }
+    return;
+  }
+
+  // ── Filing reminder notifications (REQ-051 / T-039) ────────────────────────
+  if (url === '/api/notifications/filing-reminders' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+
+      const tasksRaw = getOrgData(orgId, 'filingTasks');
+      const tasks = Array.isArray(tasksRaw) ? (tasksRaw as FilingTask[]) : [];
+      const asOfDate = typeof body.asOfDate === 'string' ? body.asOfDate : undefined;
+      const dueSoonDays = typeof body.dueSoonDays === 'number' ? body.dueSoonDays : 7;
+      const candidates = selectFilingReminders(tasks, asOfDate, dueSoonDays);
+
+      const profile = getOrgData(orgId, 'suez_company_profile') as { projectName?: string } | null;
+      const orgName =
+        (typeof body.orgName === 'string' && body.orgName.trim())
+          ? body.orgName.trim()
+          : (profile?.projectName || orgId);
+
+      const mail = buildFilingReminderEmail({
+        orgName,
+        toName: typeof body.toName === 'string' ? body.toName : undefined,
+        candidates,
+      });
+
+      if (!mail) {
+        respond(req, res, 200, {
+          ok: true,
+          sent: false,
+          reason: 'no_reminders',
+          candidates: [],
+        });
+        return;
+      }
+
+      if (body.dryRun === true) {
+        respond(req, res, 200, {
+          ok: true,
+          sent: false,
+          dryRun: true,
+          candidates,
+          email: mail,
+        });
+        return;
+      }
+
+      const to = typeof body.to === 'string' && body.to.trim() ? body.to.trim() : null;
+      if (!to) {
+        respond(req, res, 400, { error: 'to email required (or pass dryRun: true)', candidates, email: mail });
+        return;
+      }
+
+      const raw = maybeDecryptOrgData(SMTP_ORG_KEY, getOrgData(orgId, SMTP_ORG_KEY));
+      const cfg = normalizeSmtpConfig(raw);
+      if (!cfg) {
+        respond(req, res, 400, {
+          error: 'SMTP is not configured. Save host, username, password, and from email first.',
+          candidates,
+          email: mail,
+        });
+        return;
+      }
+
+      const result = await sendMail(cfg, {
+        to,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'filing_reminder_send',
+        result: 'success',
+        details: { to, candidateCount: candidates.length },
+      });
+      respond(req, res, 200, {
+        ok: true,
+        sent: true,
+        messageId: result.messageId,
+        to,
+        candidates,
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message || 'Failed to send filing reminders' });
     }
     return;
   }
@@ -1172,7 +2517,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           uploadedDocuments: docs,
         };
 
-        upsertEmployee(row.org_id, employee as Record<string, unknown>);
+        upsertEmployee(row.org_id, encryptEmployeePII(employee as Record<string, unknown>));
         updateInviteStatus(token, 'accepted', {
           acceptedAt: new Date().toISOString(),
           employeeId,
@@ -1191,7 +2536,19 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
 export function createServer() {
   rateWindowByIp.clear();
-  return http.createServer(handleRequest);
+  return http.createServer((req, res) => {
+    const started = Date.now();
+    const pathOnly = req.url?.split('?')[0] ?? '';
+    void handleRequest(req, res).finally(() => {
+      if (pathOnly === '/api/slo/metrics') return;
+      recordSloSample({
+        operation: classifyHttpPath(pathOnly),
+        durationMs: Date.now() - started,
+        ok: (res.statusCode ?? 500) < 500,
+        label: `${req.method ?? 'GET'} ${pathOnly}`,
+      });
+    });
+  });
 }
 
 if (!process.env.VITEST) {

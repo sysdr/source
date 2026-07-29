@@ -8,6 +8,7 @@ import {
   deleteAllTransactionsForOrg,
   deleteTransactionsByOrgAndSource,
 } from './db.js';
+import { classifyGstFromCountry } from './normalizeTransaction.js';
 
 const STRIPE_VERSION = '2024-06-20';
 export const STRIPE_EARLIEST_CHARGE_TS = 1262304000;
@@ -40,19 +41,29 @@ export interface StripeSqliteSyncOptions {
   purge: 'none' | 'stripe' | 'all';
 }
 
-const RevenueExport = {
-  OIDAR_RISK: 'OIDAR GST Risk (18% Liability)',
-  EXPORT: 'Export Revenue (GST 0%)',
-} as const; // align with types.RevenueCategory
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function stripeGet(url: string, headers: HeadersInit, maxRetries = 4): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(url, { method: 'GET', headers });
-    if (response.status !== 429) return response;
-    if (attempt === maxRetries) return response;
-    const retryAfter = Number(response.headers.get('Retry-After') || 0);
-    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt) * 1000;
-    await new Promise((r) => setTimeout(r, waitMs));
+    try {
+      const response = await fetch(url, { method: 'GET', headers });
+      const retryableStatus = response.status === 429 || response.status >= 500;
+      if (!retryableStatus) return response;
+      if (attempt === maxRetries) return response;
+      const retryAfter = Number(response.headers.get('Retry-After') || 0);
+      const backoffMs = Math.pow(2, attempt) * 1000;
+      const jitterMs = Math.floor(Math.random() * 250);
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : backoffMs + jitterMs;
+      await sleep(waitMs);
+      continue;
+    } catch (err) {
+      // Retry transient network errors with exponential backoff.
+      if (attempt === maxRetries) throw err;
+      const waitMs = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 250);
+      await sleep(waitMs);
+    }
   }
   throw new Error('stripeGet: exceeded retry limit');
 }
@@ -201,8 +212,6 @@ async function mapCharge(
   const billing = c.billing_details as Record<string, unknown> | undefined;
   const addr = (billing?.address || customer?.address || (customer?.shipping as Record<string, unknown> | undefined)?.address) as Record<string, unknown> | undefined;
   const country = (addr?.country as string) || 'Unknown';
-  const isIndia = country === 'IN';
-  const classification = isIndia ? RevenueExport.OIDAR_RISK : RevenueExport.EXPORT;
   const customerEmail = (customer?.email as string) || (billing?.email as string) || '';
   const now = new Date().toISOString();
   const created = typeof c.created === 'number' ? c.created : Math.floor(Date.now() / 1000);
@@ -235,6 +244,7 @@ async function mapCharge(
   const safeAmount = fallbackAmount(convAmt, originalAmount);
   const safeFee = fallbackAmount(feeAmount, feeOriginal);
   const safeNet = fallbackAmount(netAmount, netOriginal);
+  const gst = classifyGstFromCountry(country, safeAmount);
 
   const refunded = Boolean(c.refunded);
   const statusStr = (c.status as string) || '';
@@ -250,11 +260,11 @@ async function mapCharge(
     (c.description as string) ||
     `${(customer?.name as string) || 'Customer'} (${customerEmail})`;
 
-  const id = (c.id as string) || `ch_${created}`;
+  const chargeId = (c.id as string) || `ch_${created}`;
 
   return {
-    id,
-    stripeChargeId: id,
+    id: `stripe_${chargeId}`,
+    stripeChargeId: chargeId,
     stripeAccountId: accountId,
     lastSyncedAt: now,
     date: txDate,
@@ -271,8 +281,11 @@ async function mapCharge(
     status: txStatus,
     category: (c.metadata as Record<string, string> | undefined)?.type || (c.invoice ? 'Subscription' : 'One-time'),
     type: 'Income',
-    customerLocation: country,
-    classification,
+    customerLocation: gst.customerLocation,
+    customerCountry: gst.customerCountry,
+    classification: gst.classification,
+    gstRate: gst.gstRate,
+    gstImpact: gst.gstImpact,
   };
 }
 

@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getForeignIncomeRecords, getWithholdingPayments, getTaxTreaties,
   addWithholdingPayment, addForeignIncomeRecord, addTaxTreaty,
-  getRemittanceRecords, addRemittanceRecord,
+  getRemittanceRecords, addRemittanceRecord, getTransactions,
+  getOdiProfile, setOdiProfile, getFilingTasks, updateRemittanceRecord,
 } from '../services/storageService';
 import { getForeignIncomeByPeriod, getOIDARSummary, getExportRevenueSummary } from '../services/foreignIncomeService';
 import { generateForeignIncomeScheduleCSV } from '../services/statutoryReports';
-import type { ForeignIncomeType, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, RemittanceRecord, RemittanceDirection, RemittancePurpose } from '../types';
+import { buildFemaTrackingReport, deriveFircStatus } from '../services/femaTracking';
+import type { ForeignIncomeType, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, RemittanceRecord, RemittanceDirection, RemittancePurpose, OdiProfile } from '../types';
 import { RevenueCategory } from '../types';
 
 type FITab = 'records' | 'wht' | 'treaties' | 'remittances';
@@ -65,6 +67,11 @@ const ForeignIncomeScreen: React.FC = () => {
   const [remFIRC, setRemFIRC]         = useState('');
   const [remForm15CA, setRemForm15CA] = useState('');
   const [remForm15CB, setRemForm15CB] = useState('');
+  const [odiUin, setOdiUin] = useState('');
+  const [odiInvestee, setOdiInvestee] = useState('');
+  const [odiNextApr, setOdiNextApr] = useState('');
+  const [odiLastApr, setOdiLastApr] = useState('');
+  const [femaTick, setFemaTick] = useState(0);
   const [periodStart, setPeriodStart] = useState(() => `${new Date().getFullYear() - 1}-04-01`);
   const [periodEnd, setPeriodEnd]     = useState(() => new Date().toISOString().slice(0, 10));
   const [expandedWht, setExpandedWht] = useState<string | null>(null);
@@ -109,6 +116,12 @@ const ForeignIncomeScreen: React.FC = () => {
     setWht(getWithholdingPayments());
     setTreaties(getTaxTreaties());
     setRemittances(getRemittanceRecords());
+    const odi = getOdiProfile();
+    setOdiUin(odi?.uin ?? '');
+    setOdiInvestee(odi?.investeeName ?? '');
+    setOdiNextApr(odi?.nextAprDueDate ?? '');
+    setOdiLastApr(odi?.lastAprFiledDate ?? '');
+    setFemaTick((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -199,6 +212,8 @@ const ForeignIncomeScreen: React.FC = () => {
   const handleAddRemittance = () => {
     const amt = parseFloat(remAmount);
     if (!amt || amt <= 0 || !remDate) return;
+    const fircNumber = remDirection === 'Inward' ? (remFIRC.trim() || undefined) : undefined;
+    const form15CA = remDirection === 'Outward' ? (remFIRC.trim() || remForm15CA.trim() || undefined) : undefined;
     const record: RemittanceRecord = {
       id: genId('rem'),
       direction: remDirection,
@@ -208,6 +223,11 @@ const ForeignIncomeScreen: React.FC = () => {
       purpose: remPurpose,
       reference: remRef.trim() || undefined,
       softExNumber: remSoftEx.trim() || undefined,
+      fircNumber,
+      fircStatus: remDirection === 'Outward' ? 'NotRequired' : (fircNumber ? 'Received' : 'Pending'),
+      fircReceivedDate: fircNumber ? remDate : undefined,
+      form15CANumber: form15CA,
+      form15CBNumber: remForm15CB.trim() || undefined,
       documentIds: [remFIRC, remForm15CA, remForm15CB].filter(Boolean),
       createdAt: new Date().toISOString(),
     };
@@ -218,6 +238,26 @@ const ForeignIncomeScreen: React.FC = () => {
     setShowRemForm(false);
     refresh();
   };
+
+  const handleSaveOdi = () => {
+    const profile: OdiProfile = {
+      uin: odiUin.trim() || undefined,
+      investeeName: odiInvestee.trim() || undefined,
+      nextAprDueDate: odiNextApr || undefined,
+      lastAprFiledDate: odiLastApr || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    setOdiProfile(profile);
+    refresh();
+  };
+
+  const femaReport = buildFemaTrackingReport({
+    remittances,
+    transactions: getTransactions(),
+    odiProfile: getOdiProfile(),
+    filingTasks: getFilingTasks(),
+  });
+  void femaTick;
 
   return (
     <div className="space-y-6">
@@ -689,8 +729,66 @@ const ForeignIncomeScreen: React.FC = () => {
           <div className="p-4 rounded-2xl border" style={{ borderColor: '#bfdbfe', background: '#eff6ff' }}>
             <p className="text-sm font-semibold" style={{ color: '#1d4ed8' }}>FEMA Compliance — Inward & Outward Remittances</p>
             <p className="text-xs mt-1" style={{ color: '#3b82f6' }}>
-              Record all inward (FIRC) and outward remittances for FEMA/RBI reporting. Attach SoftEx numbers for software exports, Form 15CA/15CB references for outward remittances, and FIRC numbers for inward receipts.
+              Record all inward (FIRC) and outward remittances for FEMA/RBI reporting. FIRC status is derived from certificate numbers and matched bank credits.
             </p>
+          </div>
+
+          {/* FIRC + ODI status */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="p-4 rounded-2xl border space-y-2" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
+              <p className="text-xs font-heading font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>FIRC tracking</p>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {femaReport.firc.summary.pendingFirc} pending · {femaReport.firc.summary.matchedToBank} matched · {femaReport.firc.summary.receivedFirc} with certificate
+              </p>
+              {femaReport.firc.suggestedMatches.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Suggested bank matches:</p>
+                  {femaReport.firc.suggestedMatches.slice(0, 3).map((m) => (
+                    <button
+                      key={`${m.remittanceId}-${m.transactionId}`}
+                      type="button"
+                      className="block w-full text-left text-xs px-2 py-1.5 rounded-lg font-semibold"
+                      style={{ background: '#e0f2fe', color: '#0369a1' }}
+                      onClick={() => {
+                        updateRemittanceRecord(m.remittanceId, {
+                          matchedTransactionId: m.transactionId,
+                          fircStatus: 'Matched',
+                        });
+                        refresh();
+                      }}
+                    >
+                      Accept match · rem {m.remittanceId.slice(-6)} ↔ tx {m.transactionId.slice(-6)} (score {(m.score * 100).toFixed(0)}%)
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 rounded-2xl border space-y-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)' }}>
+              <p className="text-xs font-heading font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>ODI / APR</p>
+              <p className="text-sm font-semibold" style={{
+                color: femaReport.odi.aprStatus === 'overdue' ? '#dc2626'
+                  : femaReport.odi.aprStatus === 'due_soon' ? '#d97706'
+                    : 'var(--text-primary)',
+              }}>
+                {femaReport.odi.message}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="form-input text-xs" placeholder="UIN" value={odiUin} onChange={(e) => setOdiUin(e.target.value)} />
+                <input className="form-input text-xs" placeholder="Investee name" value={odiInvestee} onChange={(e) => setOdiInvestee(e.target.value)} />
+                <div>
+                  <label className="text-[10px] block mb-0.5" style={{ color: 'var(--text-muted)' }}>Next APR due</label>
+                  <input className="form-input text-xs w-full" type="date" value={odiNextApr} onChange={(e) => setOdiNextApr(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-[10px] block mb-0.5" style={{ color: 'var(--text-muted)' }}>Last APR filed</label>
+                  <input className="form-input text-xs w-full" type="date" value={odiLastApr} onChange={(e) => setOdiLastApr(e.target.value)} />
+                </div>
+              </div>
+              <button type="button" onClick={handleSaveOdi}
+                className="font-heading text-xs px-3 py-1.5 rounded-lg font-semibold text-white" style={{ background: 'var(--bg-sidebar)' }}>
+                Save ODI profile
+              </button>
+            </div>
           </div>
 
           {/* Summary chips */}
@@ -793,17 +891,25 @@ const ForeignIncomeScreen: React.FC = () => {
                   <th className="text-left py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>Direction</th>
                   <th className="text-left py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>Purpose</th>
                   <th className="text-right py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>Amount</th>
+                  <th className="text-left py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>FIRC</th>
                   <th className="text-left py-3 px-4 font-heading font-semibold text-xs hidden md:table-cell" style={{ color: 'var(--text-secondary)' }}>References</th>
                 </tr>
               </thead>
               <tbody>
                 {remittances.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center" style={{ color: 'var(--text-muted)' }}>
+                    <td colSpan={6} className="py-12 text-center" style={{ color: 'var(--text-muted)' }}>
                       No remittances recorded. Click "+ Record Remittance" to log inward FIRC receipts or outward 15CA/15CB payments.
                     </td>
                   </tr>
-                ) : [...remittances].sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+                ) : [...remittances].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
+                  const status = deriveFircStatus(r);
+                  const statusStyle = status === 'Pending'
+                    ? { bg: '#fef9c3', color: '#a16207' }
+                    : status === 'Matched' || status === 'Received'
+                      ? { bg: '#dcfce7', color: '#16a34a' }
+                      : { bg: '#f3f4f6', color: '#6b7280' };
+                  return (
                   <tr key={r.id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                     <td className="py-3 px-4 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{r.date}</td>
                     <td className="py-3 px-4">
@@ -816,13 +922,22 @@ const ForeignIncomeScreen: React.FC = () => {
                     <td className="py-3 px-4 text-right font-mono font-bold" style={{ color: r.direction === 'Inward' ? '#059669' : '#dc2626' }}>
                       {r.direction === 'Inward' ? '+' : '-'}{r.currency} {r.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
+                    <td className="py-3 px-4">
+                      <span className="text-[10px] px-2 py-0.5 rounded-lg font-bold uppercase" style={{ background: statusStyle.bg, color: statusStyle.color }}>
+                        {status}
+                      </span>
+                      {r.fircNumber && <div className="text-[10px] font-mono mt-0.5" style={{ color: 'var(--text-muted)' }}>{r.fircNumber}</div>}
+                    </td>
                     <td className="py-3 px-4 text-xs hidden md:table-cell space-y-0.5" style={{ color: 'var(--text-muted)' }}>
                       {r.reference && <div>UTR: <span className="font-mono">{r.reference}</span></div>}
                       {r.softExNumber && <div className="text-blue-600 font-mono">SoftEx: {r.softExNumber}</div>}
-                      {r.documentIds?.filter(Boolean).map((d, i) => <div key={i} className="font-mono">{d}</div>)}
+                      {r.matchedTransactionId && <div className="font-mono">Matched: {r.matchedTransactionId.slice(-8)}</div>}
+                      {r.form15CANumber && <div className="font-mono">15CA: {r.form15CANumber}</div>}
+                      {r.form15CBNumber && <div className="font-mono">15CB: {r.form15CBNumber}</div>}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

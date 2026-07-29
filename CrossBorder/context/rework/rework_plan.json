@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "artifact": "rework_plan",
+    "version": "1.1.0",
+    "phase": "review",
+    "cycle": 1,
+    "generated_at": "2026-07-29T16:50:00Z",
+    "agent_id": "rework-planner",
+    "supersedes": "1.0.0"
+  },
+  "re_entry_phase": 4,
+  "completed_this_pass": [
+    { "id": "RW-001", "status": "partial", "notes": "API/engine dry-run passed via npm run demo:p0; viewport screenshots still manual" },
+    { "id": "RW-002", "status": "done", "notes": "axe serious/critical=0 + keyboard smoke" },
+    { "id": "RW-003", "status": "partial", "notes": "mutationKill proxies; full Stryker pending" },
+    { "id": "RW-004", "status": "done", "notes": "ledger p95 well under 500ms" },
+    { "id": "RW-005", "status": "done", "notes": "81/81 REQ cite coverage" },
+    { "id": "RW-006", "status": "done", "notes": "Dashboard consolidatedPosition wired" }
+  ],
+  "items": [
+    {
+      "id": "RW-007",
+      "finding": "F-011",
+      "title": "Drive flake rate to 0 across 10 runs (Navigation getByRole timeout fixed)",
+      "re_entry_phase": 4,
+      "owner": "flake-hunter",
+      "priority": "P0",
+      "effort": "S",
+      "status": "in_progress"
+    },
+    {
+      "id": "RW-008",
+      "finding": "F-014",
+      "title": "Manual viewport screenshots for demo Flows A–E",
+      "re_entry_phase": 5,
+      "owner": "demo-builder",
+      "priority": "P1",
+      "effort": "M"
+    },
+    {
+      "id": "RW-009",
+      "finding": "F-012",
+      "title": "Full Stryker mutation ≥80% on filings/tds/payroll",
+      "re_entry_phase": 4,
+      "owner": "test-engineer",
+      "priority": "P1",
+      "effort": "L"
+    },
+    {
+      "id": "RW-010",
+      "finding": "F-015",
+      "title": "DAST against staging (SBOM + npm audit high=0 done)",
+      "re_entry_phase": 4,
+      "owner": "security-auditor",
+      "priority": "P1",
+      "effort": "L"
+    }
+  ]
+}

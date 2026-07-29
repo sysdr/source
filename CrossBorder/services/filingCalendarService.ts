@@ -76,8 +76,20 @@ export function ensureFilingTask(type: FilingTaskType, period: string): FilingTa
   return task;
 }
 
-export function markFilingFiled(taskId: string, filedDate: string, documentIds?: string[]): void {
-  updateFilingTask(taskId, { status: 'Filed', filedDate, documentIds });
+export function markFilingFiled(
+  taskId: string,
+  filedDate: string,
+  documentIds?: string[],
+  acknowledgementNumber?: string,
+  evidenceLinks?: string[],
+): void {
+  updateFilingTask(taskId, {
+    status: 'Filed',
+    filedDate,
+    documentIds,
+    acknowledgementNumber,
+    evidenceLinks,
+  });
 }
 
 export function getOverdueFilings(): FilingTask[] {

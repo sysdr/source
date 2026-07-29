@@ -1,0 +1,98 @@
+{
+  "product_name": "Project Suez — Cross-Border Financial OS",
+  "problem_statement": "Indian founders who incorporate a US subsidiary (typically an India LLP parent + Delaware C-Corp) alongside their India-based operating entity cannot see or manage their finances as one connected system. Revenue, payroll, ledgers, transfer pricing, and statutory compliance obligations live in disconnected spreadsheets, bank portals, and accountant workflows across two jurisdictions, so founders lack a single source of truth for cash position, intercompany pricing, and the interlocking India (GST/TDS/EPF/ESI/Sec 40(b)/194T) and US (Form 5472, transfer pricing, federal/state tax) filing obligations that a cross-border structure creates. This causes missed or last-minute filings, manual and error-prone TDS/GST/transfer-pricing calculations, and no reliable way to know current compliance status.",
+  "target_users": {
+    "primary": {
+      "persona": "Indian solo/small-team founder or LLP partner running a US-facing SaaS or services business",
+      "context": "Owns an India LLP (or Pvt Ltd) that is the parent of a Delaware/US C-Corp subsidiary; handles US customer billing (Stripe/Lemon Squeezy) and India-side payroll/partner remuneration personally, without an in-house finance team",
+      "pain": "No unified view of ledger, transfer pricing, payroll TDS/PF, and GST/US filing deadlines; relies on ad hoc spreadsheets and external accountants; risks non-compliance and manual calculation errors"
+    },
+    "secondary": [
+      {"persona": "Outsourced/contract accountant or CA firm", "context": "Prepares GST, TDS, and tax-audit filings for the founder", "pain": "Needs clean, exportable, form-specific data (GSTR-1/3B, 24Q/26Q, Form 5472) rather than generic CSV/TXT dumps"},
+      {"persona": "Company admin/HR operator", "context": "Issues employee documents, manages payroll runs, tracks leave", "pain": "Manual document issuance and no batch payroll processing"}
+    ]
+  },
+  "domain_tags": ["fintech", "tax-compliance", "payroll", "accounting-ERP", "cross-border-finance", "B2B-SaaS", "developer-tools"],
+  "constraints": {
+    "technical": [
+      "Golden path: TypeScript, React + Vite frontend, Node.js + Express API, SQLite persistence, Vitest + RTL, npm",
+      "Current codebase persists primarily to browser localStorage with SQLite as export/hydration snapshot — architecture gap to flag at Gate 2",
+      "No authentication/session layer exists yet; app is currently single-user, browser-only",
+      "Third-party integrations: Stripe (live sync), Google Gemini / Anthropic Claude (AI compliance assistant), Mercury Bank (partial), Nodemailer (SMTP), jsPDF/pptxgenjs",
+      "Hardcoded FX rate (USD/INR ~83.5) with no dynamic rate source"
+    ],
+    "regulatory": [
+      "India: GST (GSTR-1, GSTR-3B, GSTR-9/9C, OIDAR), TDS/TCS (24Q, 26Q, 27Q, 194T, 194Q/194A/194J), EPF/ESI, Professional Tax, Sec 40(b), LLP Tax Audit (44AB), FEMA/RBI (ODI, FIRC, SOFTEX)",
+      "US: Form 5472, transfer pricing / arm's-length, federal/state corporate tax (1120), 1099 contractor reporting",
+      "Cross-border: DTAA treaty relief, withholding tax on payments to non-residents (195/1441/1442), TRC/Form 10F"
+    ],
+    "budget": "Not stated — inferred bootstrapped/solo-founder tooling budget",
+    "timeline": "Not stated"
+  },
+  "explicit_features": [
+    "Multi-entity onboarding wizard (India parent + US subsidiary profile, payroll config, accounting config)",
+    "Revenue ingestion: Stripe live sync, mock mode, OIDAR/export classification by customer country",
+    "General ledger, Balance Sheet, P&L, journal entries, GST Center (GSTR-1/3B drafts, ITC calc)",
+    "Payroll: employee directory, salary slips, EPF/PT/TDS calc, Sec 194T partner TDS, leave management",
+    "Transfer pricing calculator with post-to-ledger intercompany transaction creation",
+    "Tax Engine: book profit, Sec 40(b) partner remuneration, US 21% tax estimate, Form 5472 draft context",
+    "Compliance Hub: digital document vault, filing calendar, statutory report downloads",
+    "Admin panel: document issuer, platform rules (FX markup, audit threshold), module permissions",
+    "AI assistant (Gemini/Claude) for compliance Q&A with query history",
+    "Invoicing, Vendors/AP, Bills, Payment runs",
+    "Foreign income records, withholding payments, tax treaties, US tax draft, Contractor 1099, remittance records"
+  ],
+  "excluded_features": [
+    "User authentication / multi-user access control",
+    "E-signature / PKI document signing",
+    "Real bank feed integrations beyond partial Mercury/Stripe",
+    "Schema-compliant regulatory filing generation (current exports are generic CSV/TXT placeholders)",
+    "Inventory and fixed-asset depreciation modules",
+    "Edit/delete on ledger transactions and employee records (append-only currently)"
+  ],
+  "scale_expectation": {
+    "at_launch": "Single organisation / single founder-operator, low transaction volume",
+    "one_year": "Small number of India-US founder organisations (tens), single-tenant-per-browser unless multi-tenant auth added",
+    "three_years": "Not determinable — would require multi-tenant SaaS rearchitecture"
+  },
+  "monetization_hint": "Not specified — inferred internal tool or pre-monetization MVP for future subscription/per-entity pricing",
+  "existing_systems": [
+    "Spreadsheets and manual accountant workflows (implied predecessor)",
+    "Stripe (integrated)",
+    "Mercury Bank (partial integration)",
+    "Lemon Squeezy (mentioned, not yet integrated)",
+    "Google Gemini API / Anthropic Claude API (integrated)"
+  ],
+  "evidence_sources": [
+    {"type": "sample_dataset", "location": "data/suez.db", "description": "Committed SQLite snapshot: org, ledger, employees, SMTP settings"},
+    {"type": "sample_dataset", "location": "data/default-organisation.json", "description": "Default organisation JSON export"},
+    {"type": "sample_dataset", "location": "data/systemdr-entity.json", "description": "Detailed legal entity profile"},
+    {"type": "codebase_analysis", "location": "FEATURE_REPORT.md", "description": "Static analysis of complete/incomplete/missing features"},
+    {"type": "codebase_analysis", "location": "docs/ERP_AND_FOREIGN_INCOME_TAX_MODULES.md", "description": "Gap analysis and module roadmap"},
+    {"type": "codebase_analysis", "location": "types.ts", "description": "Domain model entities — usable as requirements/entity seed"},
+    {"type": "integration_endpoint", "location": "services/", "description": "Live/test integration hooks for Mercury, Gemini, Claude, Stripe"},
+    {"type": "architecture_doc", "location": "AGENTIC_ARCHITECTURE.md", "description": "Existing agent orchestration design"},
+    {"type": "ticket_system", "location": "none", "description": "No issue tracker or support ticket export detected — gap"}
+  ],
+  "initial_requirement_seed": {
+    "business": "REQ-B-001: The system shall provide a founder of an India-LLP-parent / US-C-Corp-subsidiary structure a single consolidated view of financial position and compliance status across both entities.",
+    "functional": "REQ-F-001: The system shall classify each revenue transaction by customer country and income type (export of services, OIDAR, domestic) and derive the applicable GST treatment automatically.",
+    "non_functional": "REQ-NF-001: All statutory report exports (GSTR-1/3B, Form 24Q/26Q, Form 5472) shall be schema-compliant/machine-validatable for the target filing format.",
+    "user": "REQ-U-001: As a founder, I want to run a monthly payroll batch (EPF/ESI/PT/TDS computed per employee) and download filing-ready 24Q data.",
+    "external_interface": "REQ-EI-001: The system shall synchronize transaction data from Stripe (implemented) and, per roadmap, Lemon Squeezy and Mercury Bank, normalizing all sources into a common Transaction schema."
+  },
+  "regulatory_exposure": "high",
+  "complexity": "large",
+  "missing_information": [
+    "Target transaction corridors / payment rails beyond Stripe+Mercury",
+    "Hard latency/availability SLOs for the API and AI-assistant response times",
+    "Multi-tenant / multi-user authentication requirements",
+    "Monetization model and target customer count/segment",
+    "Which jurisdiction's filing formats must be schema-validated first — priority ordering not stated",
+    "Data retention, audit trail, and backup/recovery requirements for financial records",
+    "Whether SQLite remains the production system of record or is purely a snapshot mechanism for localStorage",
+    "DTAA treaty coverage scope (which countries beyond US-India)",
+    "Budget and timeline constraints for closing the identified feature gaps",
+    "Security/compliance requirements for storing PAN/GSTIN/EIN and other PII/financial identifiers"
+  ]
+}

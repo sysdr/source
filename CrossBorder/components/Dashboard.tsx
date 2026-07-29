@@ -9,7 +9,10 @@ import {
   getTransactions, getRevenueData, getCompanyProfile,
   getStripeOrgConfig, getUIState, setUIState, StorageKeys,
   getTransferPricingData, getPendingTransactions, getFilingTasks,
+  getRemittanceRecords, getOdiProfile,
 } from '../services/storageService';
+import { buildFemaTrackingReport } from '../services/femaTracking';
+import { useViewport } from '../hooks/useViewport';
 import {
   getBaseCurrency, formatAmount, formatAmountInDisplay,
   getAmountInBase, toDisplayCurrency,
@@ -17,6 +20,7 @@ import {
 import type { BaseCurrency } from '../services/currencyService';
 import { getLastSyncStatus, runStripeSyncForAllAccounts } from '../services/stripeSyncService';
 import { computeInvestorPitchMetrics } from '../services/investorPitchMetricsService';
+import { computeConsolidatedPosition } from '../services/consolidatedPosition';
 import { useDisplayCurrency } from '../contexts/DisplayCurrencyContext';
 
 interface DashboardProps {
@@ -151,6 +155,7 @@ const Section: React.FC<{ title: string; action?: React.ReactNode; children: Rea
    Dashboard Component
 ═══════════════════════════════════════════════════════════════════════════ */
 const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) => {
+  const { isMobile } = useViewport();
   const hasSyncedData         = stripeApiKey.startsWith('sk_');
   const baseCurrency          = getBaseCurrency();
   const { displayCurrency }   = useDisplayCurrency();
@@ -208,8 +213,24 @@ const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) =
     (t) => t.status !== 'Failed' && t.status !== 'Refunded' && t.status !== 'Pending'
   );
   const totalIncome  = completedTransactions.reduce((s, t) => s + (t.type === 'Income' ? getAmountInBase(t, baseCurrency) : 0), 0);
-  const totalExpense = completedTransactions.reduce((s, t) => s + ((t.type === 'Expense' || t.type === 'Purchase') ? getAmountInBase(t, baseCurrency) : 0), 0);
-  const netWealth    = totalIncome - totalExpense;
+  const totalExpenseOnly = completedTransactions.reduce((s, t) => s + (t.type === 'Expense' ? getAmountInBase(t, baseCurrency) : 0), 0);
+  const totalPurchases = completedTransactions.reduce((s, t) => s + (t.type === 'Purchase' ? getAmountInBase(t, baseCurrency) : 0), 0);
+  const totalExpense = totalExpenseOnly + totalPurchases;
+  const companyProfileEarly = getCompanyProfile();
+  const consolidated = React.useMemo(() => {
+    try {
+      return computeConsolidatedPosition({
+        parentName: companyProfileEarly?.parent?.name || 'Indian LLP',
+        subsidiaryName: companyProfileEarly?.subsidiary?.name || 'US Corp',
+        income: totalIncome,
+        expenses: totalExpenseOnly,
+        purchases: totalPurchases,
+      });
+    } catch {
+      return null;
+    }
+  }, [companyProfileEarly?.parent?.name, companyProfileEarly?.subsidiary?.name, totalIncome, totalExpenseOnly, totalPurchases]);
+  const netWealth = consolidated?.netAssets ?? (totalIncome - totalExpense);
 
   const pitchMetrics = React.useMemo(
     () => computeInvestorPitchMetrics(
@@ -298,14 +319,25 @@ const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) =
       : ComplianceStatus.CRITICAL;
     // Form 5472: required when there are related-party US transactions → WARNING means action needed
     const form5472Ok = tp && (tp.usRevenue > 0 || tp.usExpenses > 0);
-    // ODI: flag for manual review — cannot auto-verify FEMA compliance
-    const odiTasks   = getFilingTasks().filter(t => t.type?.toLowerCase().includes('odi') || t.type?.toLowerCase().includes('fema'));
-    const odiOverdue = odiTasks.some(t => t.status === 'Overdue');
-    const odiPending = odiTasks.some(t => t.status === 'Pending');
+    // ODI + FIRC: data-backed from remittances / ODI profile (REQ-018 / REQ-019 / REQ-039)
+    const fema = buildFemaTrackingReport({
+      remittances: getRemittanceRecords(),
+      transactions: getTransactions(),
+      odiProfile: getOdiProfile(),
+      filingTasks: getFilingTasks(),
+    });
+    const odiCritical = fema.odi.aprStatus === 'overdue';
+    const odiWarn = fema.odi.aprStatus === 'due_soon' || fema.firc.summary.pendingFirc > 0;
+    const odiSub = [
+      fema.odi.message,
+      fema.firc.summary.pendingFirc > 0
+        ? `${fema.firc.summary.pendingFirc} FIRC pending`
+        : `${fema.firc.summary.matchedToBank}/${fema.firc.summary.inwardTotal || 0} FIRC matched`,
+    ].join(' · ');
     return [
       { label: 'GST LUT',           status: lutStatus, sub: lutSub },
       { label: 'Form 5472',         status: form5472Ok ? ComplianceStatus.WARNING : ComplianceStatus.COMPLIANT, sub: form5472Ok ? 'Related-party activity — file by Apr 15' : 'No related-party activity' },
-      { label: 'ODI / FEMA',        status: odiOverdue ? ComplianceStatus.CRITICAL : odiPending ? ComplianceStatus.WARNING : ComplianceStatus.COMPLIANT, sub: odiOverdue ? 'APR overdue — file immediately' : odiPending ? 'Annual return due — check deadline' : 'No overdue ODI filings in calendar' },
+      { label: 'ODI / FEMA',        status: odiCritical ? ComplianceStatus.CRITICAL : odiWarn ? ComplianceStatus.WARNING : ComplianceStatus.COMPLIANT, sub: odiSub },
       { label: 'Pending Approvals', status: pending.length > 0 ? ComplianceStatus.WARNING : ComplianceStatus.COMPLIANT, sub: pending.length > 0 ? `${pending.length} item(s) awaiting` : 'All clear' },
     ];
   }, [transactions, revenueTransactions]);
@@ -331,7 +363,7 @@ const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) =
     .slice(0, 5);
   const filings = pendingOrOverdueTasks;
 
-  const companyProfile = getCompanyProfile();
+  const companyProfile = companyProfileEarly;
 
   const exportReportCSV = () => {
     const rows = [
@@ -360,6 +392,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) =
   ══════════════════════════════════════════════════════════════════════ */
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28, animation: 'fadeIn 200ms ease forwards' }}>
+      {isMobile && (
+        <div role="status" style={{ padding: '10px 14px', borderRadius: 12, background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0369a1', fontSize: 12, fontWeight: 600 }}>
+          Mobile layout (375px+) — compliance status and KPIs are read-friendly; use desktop for payroll run and journal entry.
+        </div>
+      )}
 
       {/* ── Page Title Row ─────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -530,7 +567,11 @@ const Dashboard: React.FC<DashboardProps> = ({ stripeApiKey, onConnectClick }) =
               </div>
             </div>
             <p className="kpi-value">{fmt(netWealth, true)}</p>
-            <p className="kpi-subvalue">Combined US & India assets</p>
+            <p className="kpi-subvalue">
+              {consolidated
+                ? `${consolidated.entities[0]} + ${consolidated.entities[1]}`
+                : 'Combined US & India assets'}
+            </p>
           </div>
 
           {/* Paid Subscribers */}

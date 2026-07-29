@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "artifact": "scorecard",
+    "version": "1.2.0",
+    "phase": "review",
+    "cycle": 1,
+    "generated_at": "2026-07-29T16:58:00Z",
+    "agent_id": "scorecard",
+    "supersedes": "1.1.0"
+  },
+  "weights": {
+    "correctness": 0.2,
+    "domain_fidelity": 0.15,
+    "experience": 0.1,
+    "reliability": 0.1,
+    "performance": 0.1,
+    "security_privacy": 0.2,
+    "accessibility": 0.1,
+    "operability": 0.05
+  },
+  "dimensions": {
+    "correctness": {
+      "score": 92,
+      "floor": 90,
+      "below_floor": false,
+      "inputs": "231 tests; 81/81 REQ cites; mutation kill proxies; full Stryker still pending"
+    },
+    "domain_fidelity": {
+      "score": 88,
+      "floor": 85,
+      "below_floor": false,
+      "inputs": "demo:p0 dry-run passed Flows A–C; consolidatedPosition on Dashboard"
+    },
+    "experience": {
+      "score": 80,
+      "floor": 75,
+      "below_floor": false,
+      "inputs": "Async + responsive; UX critic pending screenshot review"
+    },
+    "reliability": {
+      "score": 92,
+      "floor": 85,
+      "below_floor": false,
+      "inputs": "FLAKE_RUNS=10 flake_rate=0 after Navigation test fix"
+    },
+    "performance": {
+      "score": 92,
+      "floor": 80,
+      "below_floor": false,
+      "inputs": "ledger_query p95≪500ms"
+    },
+    "security_privacy": {
+      "score": 93,
+      "floor": 95,
+      "below_floor": true,
+      "inputs": "SBOM CycloneDX + npm audit critical/high=0; DAST still pending"
+    },
+    "accessibility": {
+      "score": 86,
+      "floor": 90,
+      "below_floor": true,
+      "inputs": "axe serious/critical=0; SR + live contrast pending"
+    },
+    "operability": {
+      "score": 86,
+      "floor": 75,
+      "below_floor": false,
+      "inputs": "demo:p0, test:load, test:flake, SBOM in CI path"
+    }
+  },
+  "composite": 90,
+  "composite_capped_by_floor": 86,
+  "marginal_gain": 2,
+  "top_leverage_findings": [
+    { "id": "F-015", "title": "DAST to clear security floor 95", "dimension": "security_privacy", "re_entry_phase": 4 },
+    { "id": "F-013", "title": "Screen-reader + live contrast", "dimension": "accessibility", "re_entry_phase": 4 },
+    { "id": "F-012", "title": "Full Stryker ≥80%", "dimension": "correctness", "re_entry_phase": 4 },
+    { "id": "F-014b", "title": "Manual viewport demo recordings", "dimension": "domain_fidelity", "re_entry_phase": 5 }
+  ]
+}

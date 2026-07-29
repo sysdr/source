@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CrossBorder ERP — Cross-Border Financial OS</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    html, body, #root { height: 100%; }
     /* ════════════════════════════════════════════════════════════════════════
        CrossBorder ERP — Corporate Design System v3.0
        World-class cross-border financial OS: Indian LLP + US Subsidiary.
@@ -1783,6 +1783,53 @@
       .mobile-menu-btn { display: flex; }
       .sidebar { transform: translateX(-100%); transition: transform var(--t-smooth); }
       .sidebar.open { transform: translateX(0); }
+    }
+
+    /* ── RESPONSIVE BASELINE 375–1920 (REQ-074 / T-034) ───────────────────── */
+    .table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .desktop-only-entry {
+      display: block;
+    }
+
+    @media (max-width: 767px) {
+      .page-body {
+        padding: 16px 12px 88px;
+      }
+      .page-header {
+        padding: 0 12px 0 56px;
+        height: auto;
+        min-height: var(--header-height);
+        flex-wrap: wrap;
+        row-gap: 8px;
+      }
+      .page-header .header-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .table-scroll table {
+        min-width: 560px;
+      }
+      .desktop-only-entry {
+        display: none !important;
+      }
+      .mobile-readonly-hint {
+        display: block;
+      }
+    }
+
+    @media (min-width: 768px) {
+      .mobile-readonly-hint {
+        display: none;
+      }
+    }
+
+    @media (max-width: 374px) {
+      .page-body { padding: 12px 8px 80px; }
     }
 
     /* ── DEPRECATED ── keep legacy vars pointing to new tokens for compat ── */

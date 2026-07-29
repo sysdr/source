@@ -5,6 +5,8 @@ import Navigation from './components/Navigation';
 import { CurrencySelector, DisplayCurrencyProvider } from './contexts/DisplayCurrencyContext';
 import { CompanyProfile } from './types';
 import { runOrchestrator, appendTurn } from './agents';
+import { runAsyncOperation, IDLE_ASYNC_STATE, type AsyncOperationState } from './services/asyncOperation';
+import AsyncStatusBanner from './components/AsyncStatusBanner';
 import {
   getCompanyProfile,
   isOnboarded as checkOnboarded,
@@ -46,6 +48,7 @@ const ComplianceHub     = lazy(() => import('./components/ComplianceHub'));
 const SyncDataScreen    = lazy(() => import('./components/SyncDataScreen'));
 const VendorsAPScreen   = lazy(() => import('./components/VendorsAPScreen'));
 const JournalScreen     = lazy(() => import('./components/JournalScreen'));
+const ReconciliationWorkbench = lazy(() => import('./components/ReconciliationWorkbench'));
 const ForeignIncomeScreen = lazy(() => import('./components/ForeignIncomeScreen'));
 const FilingCalendarScreen = lazy(() => import('./components/FilingCalendarScreen'));
 const USTaxScreen       = lazy(() => import('./components/USTaxScreen'));
@@ -57,10 +60,19 @@ const AgentArchitectureView = lazy(() => import('./components/AgentArchitectureV
 const Invoices          = lazy(() => import('./components/Invoices'));
 const MercuryBankScreen = lazy(() => import('./components/MercuryBankScreen'));
 const EmployeeJoin      = lazy(() => import('./components/EmployeeJoin'));
+const AccountantAccess  = lazy(() => import('./components/AccountantAccess'));
+const AccessBanner      = lazy(() => import('./components/AccessBanner'));
 
 function parseJoinTokenFromHash(): string | null {
   const hash = window.location.hash || '';
   const match = hash.match(/#\/?join\?([^#]*)/i);
+  if (!match) return null;
+  return new URLSearchParams(match[1]).get('token');
+}
+
+function parseAccountantTokenFromHash(): string | null {
+  const hash = window.location.hash || '';
+  const match = hash.match(/#\/?accountant\?([^#]*)/i);
   if (!match) return null;
   return new URLSearchParams(match[1]).get('token');
 }
@@ -75,6 +87,7 @@ const PAGE_LABELS: Record<string, { title: string; section: string }> = {
   revenue:    { title: 'Revenue',             section: 'Finance & Accounting'  },
   vendors:    { title: 'Vendors & AP (P2P)',  section: 'Finance & Accounting'  },
   journal:    { title: 'Journal Entries',     section: 'Finance & Accounting'  },
+  recon:      { title: 'Reconciliation',      section: 'Finance & Accounting'  },
   accounting: { title: 'Financial Books',     section: 'Finance & Accounting'  },
   finance:    { title: 'P&E by Entity',       section: 'Finance & Accounting'  },
   transfer:   { title: 'Transfer Pricing',    section: 'Finance & Accounting'  },
@@ -110,10 +123,12 @@ const Ico: React.FC<{ d: string | string[]; size?: number; style?: React.CSSProp
 /* ─── Main App ───────────────────────────────────────────────────────────── */
 const App: React.FC = () => {
   const [joinToken, setJoinToken] = useState<string | null>(() => parseJoinTokenFromHash());
+  const [accountantToken, setAccountantTokenState] = useState<string | null>(() => parseAccountantTokenFromHash());
   const [activeTab, setActiveTabState]       = useState(() => getUIState(StorageKeys.UI_ACTIVE_TAB, 'dashboard'));
   const [query, setQuery]                    = useState('');
   const [advice, setAdvice]                  = useState('');
   const [isLoadingAdvice, setIsLoadingAdvice]= useState(false);
+  const [aiAsyncState, setAiAsyncState] = useState<AsyncOperationState>(IDLE_ASYNC_STATE);
   const [showQueryHistory, setShowQueryHistory] = useState(false);
   const [queryHistory, setQueryHistory]      = useState(() => getAIQueries());
   const [agentsUsed, setAgentsUsed]          = useState<string[]>([]);
@@ -140,7 +155,10 @@ const App: React.FC = () => {
   const [stripeAccountId, setStripeAccountId] = useState(stripeCredentials.accountId);
 
   useEffect(() => {
-    const onHash = () => setJoinToken(parseJoinTokenFromHash());
+    const onHash = () => {
+      setJoinToken(parseJoinTokenFromHash());
+      setAccountantTokenState(parseAccountantTokenFromHash());
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -176,30 +194,53 @@ const App: React.FC = () => {
 
   const handleAskAI = async () => {
     if (!query.trim()) return;
-    setIsLoadingAdvice(true);
     setAgentsUsed([]);
-    const result = await runOrchestrator({
-      userMessage: query,
-      recentTurns: queryHistory.slice(0, 5).map((q) => ({ role: 'assistant' as const, content: q.response })),
+    const outcome = await runAsyncOperation({
+      step: 'AI assistant',
+      run: async () => {
+        setIsLoadingAdvice(true);
+        try {
+          const result = await runOrchestrator({
+            userMessage: query,
+            recentTurns: queryHistory.slice(0, 5).map((q) => ({ role: 'assistant' as const, content: q.response })),
+          });
+          if (!result.success) {
+            throw new Error(result.error || 'AI assistant could not complete the request');
+          }
+          return result;
+        } finally {
+          setIsLoadingAdvice(false);
+        }
+      },
+      successDetail: (result) =>
+        result.agentsUsed?.length
+          ? `Agents: ${result.agentsUsed.filter((a) => a !== 'orchestrator').join(', ') || 'orchestrator'}`
+          : 'Response ready',
+      onState: setAiAsyncState,
     });
-    const response = result.success ? result.reply : (result.error || 'Something went wrong.');
-    setAdvice(response);
-    if (result.success && result.agentsUsed?.length) {
-      setAgentsUsed(result.agentsUsed.filter((a) => a !== 'orchestrator'));
+
+    if (outcome.phase === 'success' && outcome.result) {
+      const result = outcome.result;
+      const response = result.reply;
+      setAdvice(response);
+      if (result.agentsUsed?.length) {
+        setAgentsUsed(result.agentsUsed.filter((a) => a !== 'orchestrator'));
+      }
+      setLastAuditRun({
+        userMessage: query,
+        reply: response,
+        agentsUsed: (result.agentsUsed ?? []).filter((a) => a !== 'orchestrator'),
+        toolCalls: (result.auditTrail?.[0]?.toolCalls ?? []).map((t) => ({ toolId: t.toolId, error: t.error })),
+        intent: result.intent,
+        success: result.success,
+      });
+      appendTurn('user', query);
+      appendTurn('assistant', response);
+      addAIQuery(query, response);
+      setQueryHistory(getAIQueries());
+    } else if (outcome.phase === 'error') {
+      setAdvice(outcome.message || 'Something went wrong.');
     }
-    setLastAuditRun({
-      userMessage: query,
-      reply: response,
-      agentsUsed: (result.agentsUsed ?? []).filter((a) => a !== 'orchestrator'),
-      toolCalls: (result.auditTrail?.[0]?.toolCalls ?? []).map((t) => ({ toolId: t.toolId, error: t.error })),
-      intent: result.intent,
-      success: result.success,
-    });
-    appendTurn('user', query);
-    appendTurn('assistant', response);
-    addAIQuery(query, response);
-    setQueryHistory(getAIQueries());
-    setIsLoadingAdvice(false);
   };
 
   const loadPreviousQuery = (q: { query: string; response: string }) => {
@@ -243,6 +284,17 @@ const App: React.FC = () => {
     return (
       <Suspense fallback={<TabFallback />}>
         <EmployeeJoin token={joinToken} />
+      </Suspense>
+    );
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────
+     ACCOUNTANT ACCESS (72h read-only: #/accountant?token=…)
+  ────────────────────────────────────────────────────────────────────── */
+  if (accountantToken) {
+    return (
+      <Suspense fallback={<TabFallback />}>
+        <AccountantAccess token={accountantToken} />
       </Suspense>
     );
   }
@@ -424,6 +476,7 @@ const App: React.FC = () => {
         case 'accounting':  return <AccountingModule />;
         case 'vendors':     return <VendorsAPScreen />;
         case 'journal':     return <JournalScreen />;
+        case 'recon':       return <ReconciliationWorkbench />;
         case 'foreign':     return <ForeignIncomeScreen />;
         case 'filing':      return <FilingCalendarScreen />;
         case 'ustax':       return <USTaxScreen />;
@@ -463,6 +516,9 @@ const App: React.FC = () => {
 
         {/* ── Main Content Area ───────────────────────────────────────── */}
         <div className="main-content">
+          <Suspense fallback={null}>
+            <AccessBanner />
+          </Suspense>
 
           {/* ── Top Header ─────────────────────────────────────────────── */}
           <header className="page-header">
@@ -664,6 +720,10 @@ const App: React.FC = () => {
               ) : (
                 /* Chat view */
                 <>
+                  <AsyncStatusBanner
+                    state={aiAsyncState}
+                    onDismiss={() => setAiAsyncState(IDLE_ASYNC_STATE)}
+                  />
                   {advice && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {/* User bubble */}

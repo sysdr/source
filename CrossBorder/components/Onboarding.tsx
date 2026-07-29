@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CompanyProfile } from '../types';
 import { getOnboardingDraft, setOnboardingDraft, getUIState, setUIState, StorageKeys } from '../services/storageService';
+import { validateIdentifier } from '../services/onboardingValidation';
 
 /* ─── Default Profile ────────────────────────────────────────────────────── */
 const DEFAULT_PROFILE: CompanyProfile = {
@@ -144,6 +145,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [profile, setProfile]    = useState<CompanyProfile>(() => getOnboardingDraft() || DEFAULT_PROFILE);
   const [newChannel, setNewChannel]   = useState('');
   const [newCategory, setNewCategory] = useState('');
+  const [idErrors, setIdErrors] = useState<Record<string, string>>({});
 
   const setStep = (v: number | ((prev: number) => number)) => {
     setStepState((prev: number) => {
@@ -155,7 +157,28 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
 
   useEffect(() => { setOnboardingDraft(profile); }, [profile]);
 
-  const nextStep = () => setStep((p) => p + 1);
+  const validateLegalStep = (): boolean => {
+    const next: Record<string, string> = {};
+    if (profile.parent.taxId.trim()) {
+      const g = validateIdentifier('GSTIN', profile.parent.taxId);
+      if (!g.ok && g.message) next.gstin = g.message;
+    }
+    if (profile.parent.pan?.trim()) {
+      const p = validateIdentifier('PAN', profile.parent.pan);
+      if (!p.ok && p.message) next.pan = p.message;
+    }
+    if (profile.subsidiary.taxId.trim()) {
+      const e = validateIdentifier('EIN', profile.subsidiary.taxId);
+      if (!e.ok && e.message) next.ein = e.message;
+    }
+    setIdErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const nextStep = () => {
+    if (step === 2 && !validateLegalStep()) return;
+    setStep((p) => p + 1);
+  };
   const prevStep = () => setStep((p) => p - 1);
 
   const handleFinish = () => {
@@ -234,17 +257,35 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                   <label className="form-label">GSTIN</label>
                   <input type="text" className="form-input num" placeholder="27AAXXX0000X1Z5"
                     value={profile.parent.taxId}
-                    onChange={(e) => setProfile({ ...profile, parent: { ...profile.parent, taxId: e.target.value.toUpperCase() } })}
+                    onChange={(e) => {
+                      setProfile({ ...profile, parent: { ...profile.parent, taxId: e.target.value.toUpperCase() } });
+                      setIdErrors((prev) => ({ ...prev, gstin: '' }));
+                    }}
+                    onBlur={() => {
+                      if (!profile.parent.taxId.trim()) return;
+                      const g = validateIdentifier('GSTIN', profile.parent.taxId);
+                      setIdErrors((prev) => ({ ...prev, gstin: g.ok ? '' : (g.message || '') }));
+                    }}
                     style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}
                   />
+                  {idErrors.gstin ? <span className="form-hint" style={{ color: 'var(--danger)' }}>{idErrors.gstin}</span> : null}
                 </div>
                 <div className="form-group">
                   <label className="form-label">PAN</label>
                   <input type="text" className="form-input num" placeholder="AAXXX0000X"
                     value={profile.parent.pan}
-                    onChange={(e) => setProfile({ ...profile, parent: { ...profile.parent, pan: e.target.value.toUpperCase() } })}
+                    onChange={(e) => {
+                      setProfile({ ...profile, parent: { ...profile.parent, pan: e.target.value.toUpperCase() } });
+                      setIdErrors((prev) => ({ ...prev, pan: '' }));
+                    }}
+                    onBlur={() => {
+                      if (!profile.parent.pan?.trim()) return;
+                      const p = validateIdentifier('PAN', profile.parent.pan);
+                      setIdErrors((prev) => ({ ...prev, pan: p.ok ? '' : (p.message || '') }));
+                    }}
                     style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}
                   />
+                  {idErrors.pan ? <span className="form-hint" style={{ color: 'var(--danger)' }}>{idErrors.pan}</span> : null}
                 </div>
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                   <label className="form-label">State of Registration</label>
@@ -293,9 +334,18 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                   <label className="form-label">EIN (optional)</label>
                   <input type="text" className="form-input num" placeholder="XX-XXXXXXX"
                     value={profile.subsidiary.taxId}
-                    onChange={(e) => setProfile({ ...profile, subsidiary: { ...profile.subsidiary, taxId: e.target.value } })}
+                    onChange={(e) => {
+                      setProfile({ ...profile, subsidiary: { ...profile.subsidiary, taxId: e.target.value } });
+                      setIdErrors((prev) => ({ ...prev, ein: '' }));
+                    }}
+                    onBlur={() => {
+                      if (!profile.subsidiary.taxId.trim()) return;
+                      const e = validateIdentifier('EIN', profile.subsidiary.taxId);
+                      setIdErrors((prev) => ({ ...prev, ein: e.ok ? '' : (e.message || '') }));
+                    }}
                     style={{ fontFamily: 'var(--font-mono)' }}
                   />
+                  {idErrors.ein ? <span className="form-hint" style={{ color: 'var(--danger)' }}>{idErrors.ein}</span> : null}
                 </div>
               </div>
             </div>

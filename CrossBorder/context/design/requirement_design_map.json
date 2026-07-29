@@ -1,0 +1,216 @@
+{
+  "meta": {
+    "artifact": "requirement_design_map",
+    "version": "1.1.0",
+    "phase": "design",
+    "cycle": 1
+  },
+  "coverage": {
+    "total_requirements": 81,
+    "mapped_requirements": 81,
+    "orphan_requirements": [],
+    "notes": [
+      "Each REQ id is mapped to one primary design module.",
+      "Some REQs are intentionally referenced by supporting modules for integration."
+    ]
+  },
+  "module_design_map": [
+    {
+      "module": "Core",
+      "design_items": [
+        "Role model and policy checks",
+        "SQLite as source of record",
+        "Audit event schema",
+        "Backup and retention jobs",
+        "FX provider adapter and cache",
+        "Import and migration pipeline",
+        "Latency instrumentation"
+      ],
+      "requirements": ["REQ-005", "REQ-026", "REQ-027", "REQ-028", "REQ-030", "REQ-031", "REQ-032", "REQ-033", "REQ-034", "REQ-065", "REQ-066", "REQ-067", "REQ-068", "REQ-070", "REQ-071", "REQ-077"]
+    },
+    {
+      "module": "Dashboard",
+      "design_items": [
+        "Consolidated financial dashboard",
+        "Dynamic compliance traffic lights",
+        "Founder decision view"
+      ],
+      "requirements": ["REQ-001", "REQ-002", "REQ-041"]
+    },
+    {
+      "module": "Onboarding",
+      "design_items": [
+        "Entity setup flow",
+        "Identifier validation service",
+        "Category/channel editor"
+      ],
+      "requirements": ["REQ-040", "REQ-056", "REQ-076"]
+    },
+    {
+      "module": "RevenueIngestion",
+      "design_items": [
+        "Stripe sync service",
+        "Webhook idempotency store",
+        "Normalizer for multi-source transactions",
+        "GST classifier inputs"
+      ],
+      "requirements": ["REQ-006", "REQ-044", "REQ-045", "REQ-046", "REQ-078"]
+    },
+    {
+      "module": "Accounting",
+      "design_items": [
+        "Double-entry validator",
+        "Period close lock",
+        "Reconciliation workbench",
+        "Fixed assets and depreciation",
+        "Tally export formatter",
+        "FX gain/loss posting",
+        "Bank statement upload reconciliation"
+      ],
+      "requirements": ["REQ-015", "REQ-023", "REQ-042", "REQ-058", "REQ-060", "REQ-061", "REQ-063", "REQ-079", "REQ-081"]
+    },
+    {
+      "module": "Payroll",
+      "design_items": [
+        "Pre-run data validation",
+        "Batch run workflow",
+        "TDS section engines",
+        "24Q and ECR format exporters",
+        "Employee profile edit workflow"
+      ],
+      "requirements": ["REQ-009", "REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-035", "REQ-037", "REQ-049", "REQ-050", "REQ-059"]
+    },
+    {
+      "module": "TaxEngine",
+      "design_items": [
+        "40(b) and 194T calculators",
+        "Advance tax tracker",
+        "Form 5472 transaction model",
+        "US tax estimate computation"
+      ],
+      "requirements": ["REQ-003", "REQ-014", "REQ-020", "REQ-025", "REQ-064"]
+    },
+    {
+      "module": "ComplianceHub",
+      "design_items": [
+        "Schema validation pipeline",
+        "Filing calendar state model",
+        "Export disclaimer injection",
+        "Manual filing acknowledgement store",
+        "FIRC and ODI tracking",
+        "Priority-wave feature presentation"
+      ],
+      "requirements": ["REQ-004", "REQ-007", "REQ-008", "REQ-017", "REQ-018", "REQ-019", "REQ-029", "REQ-036", "REQ-038", "REQ-039", "REQ-048", "REQ-054", "REQ-055", "REQ-080"]
+    },
+    {
+      "module": "AP",
+      "design_items": [
+        "Vendor and bill workflows",
+        "Payment run orchestration",
+        "Vendor TDS engine"
+      ],
+      "requirements": ["REQ-023", "REQ-062"]
+    },
+    {
+      "module": "Invoicing",
+      "design_items": [
+        "Invoice authoring and PDF",
+        "Invoice tax validation",
+        "Invoice quality checks for AI"
+      ],
+      "requirements": ["REQ-022", "REQ-043"]
+    },
+    {
+      "module": "TransferPricing",
+      "design_items": [
+        "Method explanation and evidence bundle",
+        "Intercompany invoice PDF export",
+        "Differentiation demo output"
+      ],
+      "requirements": ["REQ-021", "REQ-057"]
+    },
+    {
+      "module": "ForeignIncome",
+      "design_items": [
+        "Country-wise income record management",
+        "DTAA article mapping",
+        "Withholding tax linkages"
+      ],
+      "requirements": ["REQ-024"]
+    },
+    {
+      "module": "Auth",
+      "design_items": [
+        "Role assignment store",
+        "Accountant invite token flow",
+        "Session guardrails for write/read access"
+      ],
+      "requirements": ["REQ-072", "REQ-073"]
+    },
+    {
+      "module": "AIAssistant",
+      "design_items": [
+        "Provider fallback orchestration",
+        "Structured context assembly",
+        "Failure-safe user messaging"
+      ],
+      "requirements": ["REQ-052", "REQ-075"]
+    },
+    {
+      "module": "Notifications",
+      "design_items": [
+        "SMTP reminder and status emails",
+        "Regulatory due-date notifications",
+        "Payroll completion notifications"
+      ],
+      "requirements": ["REQ-051"]
+    },
+    {
+      "module": "ProductStrategy",
+      "design_items": [
+        "MVP boundary and release sequencing",
+        "Scope communication and deferred feature handling",
+        "Compliance liability language"
+      ],
+      "requirements": ["REQ-053", "REQ-054", "REQ-055"]
+    },
+    {
+      "module": "PlatformUX",
+      "design_items": [
+        "Responsive layout baseline",
+        "Accessibility conformance",
+        "Async status and error patterns"
+      ],
+      "requirements": ["REQ-069", "REQ-074", "REQ-075"]
+    },
+    {
+      "module": "DevOps",
+      "design_items": [
+        "Pipeline gates for dependency and security checks",
+        "Backup monitoring and restore evidence",
+        "Performance and load test automation"
+      ],
+      "requirements": ["REQ-066", "REQ-067", "REQ-071"]
+    }
+  ],
+  "open_design_risks": [
+    {
+      "id": "DR-001",
+      "risk": "Requirement conflict between single-user wording and accountant invite flow",
+      "affected_requirements": ["REQ-070", "REQ-073"],
+      "mitigation": "Treat REQ-070 as single-writer policy and create explicit requirement amendment in next specify cycle."
+    },
+    {
+      "id": "DR-002",
+      "risk": "Regulatory export formats can change and break contracts",
+      "affected_requirements": ["REQ-007", "REQ-008", "REQ-009", "REQ-010", "REQ-014", "REQ-048", "REQ-049", "REQ-050"],
+      "mitigation": "Version schema fixtures and gate releases on contract-test pass."
+    },
+    {
+      "id": "DR-003",
+      "risk": "MVP operational burden from manual filing acknowledgement",
+      "affected_requirements": ["REQ-080", "REQ-036"],
+      "mitigation": "Introduce mandatory checklist and reminder automation before filing deadlines."
+    }
+  ]
+}

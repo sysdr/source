@@ -9,9 +9,17 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:a11y": "vitest run services/a11y.smoke.test.tsx services/a11y.axe.test.tsx",
+    "test:load": "tsx scripts/load-ledger-slo.ts",
+    "test:flake": "node scripts/flake-hunter.mjs",
+    "test:mutation": "stryker run",
     "test:stripe-fetch": "node scripts/test-stripe-fetch.mjs",
+    "demo:p0": "tsx scripts/demo-p0-dry-run.ts",
     "seed:db": "tsx scripts/seed-default-org-db.ts",
     "snapshot:data": "tsx scripts/snapshot-data.ts",
+    "backup:db": "tsx scripts/backup-db.ts",
+    "backup:verify": "tsx scripts/verify-backup.ts",
+    "audit:deps": "npm audit --audit-level=high",
     "server": "tsx server/index.ts"
   },
   "dependencies": {
@@ -29,6 +37,10 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -36,10 +48,17 @@
     "@types/node": "^22.14.0",
     "@types/nodemailer": "^8.0.1",
     "@vitejs/plugin-react": "^5.0.0",
+    "axe-core": "^4.12.1",
     "jsdom": "^28.0.0",
-    "tsx": "^4.21.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "vitest-axe": "^0.1.0"
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.8",
+    "esbuild": "^0.28.1"
   }
 }

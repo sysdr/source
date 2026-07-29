@@ -4,14 +4,26 @@ import { VaultDocument } from '../types';
 import { getCompanyProfile, getVaultDocuments, getTransactions, getEmployees, getPayrollRuns, getTransferPricingData } from '../services/storageService';
 import {
   generateForm24QCSV,
+  generateForm26QCSV,
   generatePFECR,
   generateESIReturn,
   generatePTChallan,
   generateBankFile,
   generateForm16PDF,
 } from '../services/statutoryReports';
-import { getBaseCurrency, getAmountInBase, getGstImpactInBase } from '../services/currencyService';
-import { analyzeInvoice } from '../services/geminiService';
+import { getBaseCurrency, getAmountInBase } from '../services/currencyService';
+import { analyzeInvoiceWithFallback } from '../services/aiFallback';
+import {
+  DEFERRED_FILINGS,
+  FILING_DISCLAIMER,
+  form5472ToCsv,
+  generateForm5472,
+  generateGstr1,
+  gstr1ToJsonString,
+} from '../services/filings';
+import AsyncStatusBanner from './AsyncStatusBanner';
+import { IDLE_ASYNC_STATE, type AsyncOperationState } from '../services/asyncOperation';
+import { useViewport } from '../hooks/useViewport';
 
 const FY_OPTIONS = ['2024-25', '2025-26', '2026-27'];
 const QUARTER_OPTIONS = ['Q1', 'Q2', 'Q3', 'Q4'] as const;
@@ -21,13 +33,18 @@ const ComplianceHub: React.FC = () => {
   const [vault, setVault] = useState<VaultDocument[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
+  const [exportAsync, setExportAsync] = useState<AsyncOperationState>(IDLE_ASYNC_STATE);
+  const { isMobile } = useViewport();
   const [selectedFY, setSelectedFY] = useState('2025-26');
   const [selectedQuarter, setSelectedQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>('Q3');
   const [invoiceText, setInvoiceText] = useState('');
-  const [invoiceResult, setInvoiceResult] = useState<{ isCompliant?: boolean; missingElements?: string[]; suggestedRemedy?: string } | null>(null);
+  const [invoiceResult, setInvoiceResult] = useState<{ isCompliant?: boolean; missingElements?: string[]; suggestedRemedy?: string; provider?: string } | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [showInvoiceCheck, setShowInvoiceCheck] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -46,6 +63,7 @@ const ComplianceHub: React.FC = () => {
     { id: '5472', title: 'Form 5472 Transaction Data', region: 'US', status: 'Ready', urgency: 'Critical', icon: '🇺🇸', type: '5472' as const },
     { id: 'gstr1', title: 'GSTR-1 Export Register', region: 'India', status: 'Complete', urgency: 'Normal', icon: '🧾', type: 'gstr1' as const },
     { id: '24q', title: 'Form 24Q (Employee TDS)', region: 'India', status: 'Ready', urgency: 'Normal', icon: '👥', type: '24q' as const },
+    { id: '26q', title: 'Form 26Q (Non-salary TDS)', region: 'India', status: 'Ready', urgency: 'Normal', icon: '📑', type: '26q' as const },
     { id: 'pf_ecr', title: 'PF ECR (EPFO)', region: 'India', status: 'Ready', urgency: 'Normal', icon: '🏛️', type: 'pf_ecr' as const },
     { id: 'esi', title: 'ESI Monthly Return', region: 'India', status: 'Ready', urgency: 'Normal', icon: '🏥', type: 'esi' as const },
     { id: 'pt', title: 'PT Challan', region: 'India', status: 'Ready', urgency: 'Normal', icon: '📋', type: 'pt' as const },
@@ -56,6 +74,10 @@ const ComplianceHub: React.FC = () => {
   ];
 
   const handleDownload = (idx: number, report: typeof reports[number]) => {
+    if (!acknowledged) {
+      showToast('Acknowledge the filing disclaimer before downloading.');
+      return;
+    }
     setLoadingReport(idx);
     const baseCurrency = getBaseCurrency();
 
@@ -65,6 +87,20 @@ const ComplianceHub: React.FC = () => {
       const runs = getPayrollRuns();
       try {
         generateForm24QCSV(employees, runs, selectedQuarter, selectedFY, profile!);
+      } catch (err) {
+        showToast((err as Error).message);
+      } finally {
+        setLoadingReport(null);
+      }
+      return;
+    }
+
+    if (report.type === '26q') {
+      const profile = getCompanyProfile();
+      try {
+        generateForm26QCSV(selectedQuarter, selectedFY, profile);
+      } catch (err) {
+        showToast((err as Error).message);
       } finally {
         setLoadingReport(null);
       }
@@ -113,22 +149,20 @@ const ComplianceHub: React.FC = () => {
     if (report.type === '5472') {
       const profile = getCompanyProfile();
       const tp = getTransferPricingData();
-      const txs = getTransactions().filter((t) => t.category === 'Transfer Pricing' || t.description?.toLowerCase().includes('intercompany'));
-      const lines: string[] = [
-        '# Form 5472 - Related Party Transaction Data (Draft)',
-        `# Reporting Corporation: ${profile?.subsidiary?.name || 'US Subsidiary'}`,
-        `# EIN: ${profile?.subsidiary?.taxId || ''}`,
-        `# Related Party: ${profile?.parent?.name || 'Indian Parent'}`,
-        `# Generated: ${new Date().toISOString()}`,
-        'Date,Description,Amount USD,Amount INR,Type',
-      ];
-      if (tp.usRevenue > 0 || tp.usExpenses > 0) {
-        lines.push(`${new Date().toISOString().split('T')[0]},Intercompany service fee (transfer pricing),${(tp.usRevenue - tp.usExpenses).toFixed(2)},,Income`);
-      }
-      txs.forEach((t) => {
-        lines.push(`${t.date},"${(t.description || '').replace(/"/g, '""')}",${t.currency === 'USD' ? t.amount : ''},${t.currency === 'INR' ? t.amount : ''},${t.type}`);
+      const txs = getTransactions();
+      const result = generateForm5472({
+        profile: profile!,
+        taxYear: selectedFY.split('-')[0],
+        transactions: txs,
+        transferPricing: tp,
       });
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      if (!result.ok) {
+        showToast(result.issues.map((i) => i.message).join('; '));
+        setLoadingReport(null);
+        return;
+      }
+      const csv = form5472ToCsv(result.data as Parameters<typeof form5472ToCsv>[0]);
+      const blob = new Blob([csv], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -140,24 +174,26 @@ const ComplianceHub: React.FC = () => {
     }
 
     if (report.type === 'gstr1') {
+      const profile = getCompanyProfile();
       const transactions = getTransactions();
-      const lines: string[] = [
-        'GSTR-1 EXPORT REGISTER',
-        `Generated: ${new Date().toLocaleString()}`,
-        'Date,Description,Category,Amount,ITC,GST Rate',
-      ];
-      transactions
-        .filter((t) => t.type === 'Income' && t.status !== 'Failed' && t.status !== 'Refunded')
-        .forEach((t) => {
-          const amt = getAmountInBase(t, baseCurrency);
-          const gst = getGstImpactInBase(t, baseCurrency);
-          lines.push(`${t.date},"${t.description}",${t.category},${amt},${gst},0%`);
-        });
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const now = new Date();
+      const fp = `${String(now.getMonth() + 1).padStart(2, '0')}${now.getFullYear()}`;
+      const result = generateGstr1({
+        gstin: profile?.parent?.taxId || 'UNREGISTERED',
+        fp,
+        supplierStateCode: profile?.parent?.stateCode || '27',
+        transactions,
+      });
+      if (!result.ok) {
+        showToast(result.issues.map((i) => i.message).join('; '));
+        setLoadingReport(null);
+        return;
+      }
+      const blob = new Blob([gstr1ToJsonString(result.data)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `GSTR1_Export_Register_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `GSTR1_${fp}.json`;
       a.click();
       window.URL.revokeObjectURL(url);
       setLoadingReport(null);
@@ -273,18 +309,44 @@ const ComplianceHub: React.FC = () => {
     }, 800);
   };
 
-  const handleInviteAccountant = () => {
+  const handleInviteAccountant = async () => {
     if (!inviteEmail?.trim()) {
       showToast('Please enter an email address.');
       return;
     }
     const profile = getCompanyProfile();
-    const subject = encodeURIComponent(`Invitation to collaborate on ${profile?.projectName || 'Project Suez'} - FY 2025-26`);
-    const body = encodeURIComponent(`Hi,\n\nI'd like to invite you to collaborate on our financial records for ${profile?.projectName || 'Project Suez'} (FY 2025-26).\n\nOur books are audit-ready with intercompany invoices matched, OIDAR vs Export revenue categorized, and partner capital accounts synced.\n\nPlease let me know how you'd like to proceed.\n\nBest regards`);
-    window.location.href = `mailto:${inviteEmail.trim()}?subject=${subject}&body=${body}`;
-    setShowInviteModal(false);
-    setInviteEmail('');
-    showToast('Your email client will open with a pre-filled invite. Send the email to complete the invite.');
+    const orgId = localStorage.getItem('suez_active_org_id') ?? 'default';
+    const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
+      ?? 'http://localhost:3001';
+    try {
+      setInviteBusy(true);
+      const res = await fetch(`${BASE}/api/accountant-invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SUEZ-ROLE': 'owner' },
+        body: JSON.stringify({
+          orgId,
+          email: inviteEmail.trim(),
+          orgName: profile?.projectName,
+          appBase: window.location.origin,
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; inviteUrl?: string; error?: string; invite?: { expiresAt: string } };
+      if (!res.ok || !json.ok || !json.inviteUrl) {
+        showToast(json.error || 'Failed to create accountant invite');
+        return;
+      }
+      setInviteLink(json.inviteUrl);
+      const subject = encodeURIComponent(`72-hour read-only access — ${profile?.projectName || 'Project Suez'}`);
+      const body = encodeURIComponent(
+        `Hi,\n\nYou have been invited to review books for ${profile?.projectName || 'Project Suez'} in read-only mode (valid 72 hours).\n\nOpen this link:\n${json.inviteUrl}\n\nYou can export filing-ready data but cannot create or modify records.\n\nBest regards`,
+      );
+      window.location.href = `mailto:${inviteEmail.trim()}?subject=${subject}&body=${body}`;
+      showToast('Invite link created (72h). Email client opened — copy the link if needed.');
+    } catch (err) {
+      showToast((err as Error).message || 'Invite failed');
+    } finally {
+      setInviteBusy(false);
+    }
   };
 
   const downloadVaultDoc = (doc: VaultDocument) => {
@@ -303,6 +365,28 @@ const ComplianceHub: React.FC = () => {
           {toastMsg}
         </div>
       )}
+      {loadingReport !== null && (
+        <AsyncStatusBanner
+          state={{
+            phase: 'loading',
+            step: reports[loadingReport]?.title ?? 'Export',
+            message: `Generating ${reports[loadingReport]?.title ?? 'export'}…`,
+            remediation: null,
+            detail: null,
+            result: null,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+          }}
+        />
+      )}
+      {exportAsync.phase !== 'idle' && exportAsync.phase !== 'loading' && (
+        <AsyncStatusBanner state={exportAsync} onDismiss={() => setExportAsync(IDLE_ASYNC_STATE)} />
+      )}
+      {isMobile && (
+        <div role="status" className="p-3 rounded-xl text-sm font-medium" style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+          Mobile view — downloads work; interactive data entry (payroll run, journal) is desktop-only.
+        </div>
+      )}
       <header>
         <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Compliance Hub</h2>
         <p className="text-slate-500 mt-1 font-medium">Download reports for final tax filing and audit preparation.</p>
@@ -310,6 +394,20 @@ const ComplianceHub: React.FC = () => {
 
       <section className="space-y-6">
         <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">Statutory Reports</h3>
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+            />
+            <span className="text-xs text-amber-950 leading-relaxed">
+              <span className="font-black uppercase tracking-wide text-[10px] block mb-1">Filing disclaimer</span>
+              {FILING_DISCLAIMER}
+            </span>
+          </label>
+        </div>
         <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <span className="text-[10px] font-black text-slate-400 uppercase">Form 24Q options:</span>
           <label className="flex items-center gap-2">
@@ -347,12 +445,29 @@ const ComplianceHub: React.FC = () => {
               <div className="mt-8 flex gap-2">
                 <button 
                   onClick={() => handleDownload(idx, report)}
-                  disabled={loadingReport === idx}
-                  className="flex-1 bg-slate-900 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+                  disabled={loadingReport === idx || !acknowledged}
+                  className="flex-1 bg-slate-900 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loadingReport === idx ? (
                     <span className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
                   ) : 'Download'}
+                </button>
+              </div>
+            </div>
+          ))}
+          {DEFERRED_FILINGS.map((item) => (
+            <div key={item.id} className="bg-slate-50 p-6 rounded-3xl border border-dashed border-slate-300 flex flex-col justify-between opacity-80">
+              <div>
+                <h4 className="font-black text-slate-700 uppercase text-xs tracking-tight">{item.title}</h4>
+                <p className="text-[10px] font-bold text-slate-400 mt-1">DEFERRED • {item.reason}</p>
+              </div>
+              <div className="mt-8">
+                <button
+                  type="button"
+                  disabled
+                  className="w-full bg-slate-200 text-slate-500 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
+                >
+                  Coming Soon
                 </button>
               </div>
             </div>
@@ -386,10 +501,10 @@ const ComplianceHub: React.FC = () => {
                 setInvoiceLoading(true);
                 setInvoiceResult(null);
                 try {
-                  const res = await analyzeInvoice(invoiceText.trim());
+                  const res = await analyzeInvoiceWithFallback(invoiceText.trim());
                   setInvoiceResult(res && typeof res === 'object' ? res : { suggestedRemedy: String(res) });
                 } catch {
-                  setInvoiceResult({ suggestedRemedy: 'Analysis failed. Please try again.' });
+                  setInvoiceResult({ suggestedRemedy: 'Analysis failed. Please try again.', provider: 'heuristic' });
                 } finally {
                   setInvoiceLoading(false);
                 }
@@ -400,7 +515,10 @@ const ComplianceHub: React.FC = () => {
             </button>
             {invoiceResult && (
               <div className={`p-4 rounded-xl border text-sm ${invoiceResult.isCompliant ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
-                <p className="font-bold uppercase text-[10px] mb-1">{invoiceResult.isCompliant ? 'Compliant' : 'Review required'}</p>
+                <p className="font-bold uppercase text-[10px] mb-1">
+                  {invoiceResult.isCompliant ? 'Compliant' : 'Review required'}
+                  {invoiceResult.provider ? ` · via ${invoiceResult.provider}` : ''}
+                </p>
                 {invoiceResult.missingElements?.length ? (
                   <p className="text-xs mb-2"><strong>Missing:</strong> {invoiceResult.missingElements.join(', ')}</p>
                 ) : null}
@@ -476,7 +594,7 @@ const ComplianceHub: React.FC = () => {
               <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Invite Accountant</h3>
               <button onClick={() => { setShowInviteModal(false); setInviteEmail(''); }} className="text-2xl text-slate-400 hover:text-slate-900">×</button>
             </div>
-            <p className="text-sm text-slate-500">Enter the accountant&apos;s email to send a collaboration invite with project details.</p>
+            <p className="text-sm text-slate-500">Creates a 72-hour read-only access link. Accountant can export filings but cannot modify records.</p>
             <input
               type="email"
               value={inviteEmail}
@@ -484,8 +602,15 @@ const ComplianceHub: React.FC = () => {
               placeholder="accountant@firm.com"
               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 focus:ring-indigo-200"
             />
-            <button onClick={handleInviteAccountant} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all">
-              Send Invite
+            {inviteLink && (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Invite link</p>
+                <p className="text-xs font-mono break-all text-slate-700">{inviteLink}</p>
+              </div>
+            )}
+            <button onClick={() => void handleInviteAccountant()} disabled={inviteBusy}
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50">
+              {inviteBusy ? 'Creating…' : 'Create 72h link & email'}
             </button>
           </div>
         </div>

@@ -1,17 +1,45 @@
 /**
- * Journal entries, period close, trial balance (R2R).
+ * Journal entries, period close, trial balance (R2R) — REQ-015 / REQ-060.
  */
 
-import type { JournalEntry, JournalEntryLine, JournalEntryStatus, PeriodClose, GLAccount } from '../types';
-import { getJournalEntries, addJournalEntry, updateJournalEntry, getPeriodCloses, addPeriodClose, getChartOfAccounts } from './storageService';
+import type { JournalEntry, JournalEntryLine, PeriodClose, GLAccount } from '../types';
+import {
+  getJournalEntries,
+  addJournalEntry,
+  updateJournalEntry,
+  getPeriodCloses,
+  addPeriodClose,
+  setPeriodCloses,
+  getChartOfAccounts,
+  setJournalEntries,
+} from './storageService';
+import {
+  assertPeriodOpen,
+  buildPeriodCloseRecord,
+  buildYearEndClose,
+  computeTrialBalance,
+  ensureRetainedEarnings,
+  getPeriodStatus,
+  periodFromDate,
+  RETAINED_EARNINGS_CODE,
+  type PeriodStatus,
+  type TrialBalanceLine,
+} from './periodCloseEngine';
+
+export {
+  getPeriodStatus,
+  periodFromDate,
+  RETAINED_EARNINGS_CODE,
+  type PeriodStatus,
+  type TrialBalanceLine,
+};
 
 const JE_PREFIX = 'JE';
 const YEAR_DIGITS = 2;
 
-function nextJournalNumber(): string {
-  const list = getJournalEntries();
+function nextJournalNumber(entries: JournalEntry[] = getJournalEntries()): string {
   const year = String(new Date().getFullYear()).slice(-YEAR_DIGITS);
-  const sameYear = list.filter((i) => i.number.startsWith(`${JE_PREFIX}-${year}`));
+  const sameYear = entries.filter((i) => i.number.startsWith(`${JE_PREFIX}-${year}`));
   const maxNum = sameYear.reduce((max, i) => {
     const n = parseInt(i.number.split('-')[2] || '0', 10);
     return n > max ? n : max;
@@ -19,17 +47,17 @@ function nextJournalNumber(): string {
   return `${JE_PREFIX}-${year}-${String(maxNum + 1).padStart(4, '0')}`;
 }
 
-function periodFromDate(date: string): string {
-  const d = new Date(date);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
-}
-
 export interface CreateJournalEntryInput {
   date: string;
   description: string;
-  lines: { glAccountCode: string; description?: string; debit: number; credit: number; currency: 'USD' | 'INR'; entity?: 'parent' | 'subsidiary' }[];
+  lines: {
+    glAccountCode: string;
+    description?: string;
+    debit: number;
+    credit: number;
+    currency: 'USD' | 'INR';
+    entity?: 'parent' | 'subsidiary';
+  }[];
   createdBy?: string;
 }
 
@@ -39,6 +67,9 @@ export function createJournalEntry(input: CreateJournalEntryInput): JournalEntry
   if (Math.abs(totalDebit - totalCredit) > 0.01) {
     throw new Error('Journal entry must balance: total debit must equal total credit.');
   }
+
+  const period = periodFromDate(input.date);
+  assertPeriodOpen(period, getPeriodCloses());
 
   const now = new Date().toISOString();
   const jeLines: JournalEntryLine[] = input.lines.map((l, idx) => ({
@@ -55,7 +86,7 @@ export function createJournalEntry(input: CreateJournalEntryInput): JournalEntry
     id: `je-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     number: nextJournalNumber(),
     date: input.date,
-    period: periodFromDate(input.date),
+    period,
     description: input.description,
     lines: jeLines,
     status: 'Draft',
@@ -70,6 +101,7 @@ export function postJournalEntry(id: string): void {
   const je = getJournalEntries().find((e) => e.id === id);
   if (!je) return;
   if (je.status !== 'Draft') return;
+  assertPeriodOpen(je.period, getPeriodCloses());
   updateJournalEntry(id, { status: 'Posted', postedAt: new Date().toISOString() });
 }
 
@@ -78,6 +110,10 @@ export function reverseJournalEntry(id: string): JournalEntry | null {
   if (!je || je.status !== 'Posted') return null;
 
   const now = new Date().toISOString();
+  const period = periodFromDate(now);
+  assertPeriodOpen(period, getPeriodCloses());
+  assertPeriodOpen(je.period, getPeriodCloses());
+
   const reversedLines: JournalEntryLine[] = je.lines.map((l) => ({
     ...l,
     id: `jel-${Date.now()}-${l.id}`,
@@ -89,7 +125,7 @@ export function reverseJournalEntry(id: string): JournalEntry | null {
     id: `je-rev-${Date.now()}`,
     number: nextJournalNumber(),
     date: now.slice(0, 10),
-    period: periodFromDate(now),
+    period,
     description: `Reversal of ${je.number}: ${je.description}`,
     lines: reversedLines,
     status: 'Posted',
@@ -106,46 +142,58 @@ export function reverseJournalEntry(id: string): JournalEntry | null {
 export function closePeriod(period: string, closedBy?: string): PeriodClose {
   const existing = getPeriodCloses().find((p) => p.period === period);
   if (existing) throw new Error(`Period ${period} is already closed.`);
-  const now = new Date().toISOString();
-  const pc: PeriodClose = {
-    id: `pc-${period}`,
-    period,
-    closedAt: now,
-    closedBy,
-    locked: true,
-  };
+  const pc = buildPeriodCloseRecord(period, closedBy);
   addPeriodClose(pc);
   return pc;
 }
 
 export function isPeriodClosed(period: string): boolean {
-  return getPeriodCloses().some((p) => p.period === period && p.locked);
-}
-
-export interface TrialBalanceLine {
-  glAccountCode: string;
-  accountName: string;
-  debit: number;
-  credit: number;
+  return getPeriodStatus(period, getPeriodCloses()) === 'locked';
 }
 
 export function getTrialBalance(period?: string): TrialBalanceLine[] {
-  const entries = getJournalEntries().filter((e) => e.status === 'Posted' && (period ? e.period === period : true));
-  const chart = getChartOfAccounts();
-  const byAccount: Record<string, { debit: number; credit: number }> = {};
+  return computeTrialBalance(getJournalEntries(), getChartOfAccounts(), period);
+}
 
-  for (const je of entries) {
-    for (const line of je.lines) {
-      if (!byAccount[line.glAccountCode]) byAccount[line.glAccountCode] = { debit: 0, credit: 0 };
-      byAccount[line.glAccountCode].debit += line.debit;
-      byAccount[line.glAccountCode].credit += line.credit;
-    }
-  }
+/**
+ * Year-end close: post closing JE (P&L → Retained Earnings) and lock all FY months.
+ */
+export function runYearEndClose(input: {
+  yearEndYear: number;
+  yearEndMonth?: number;
+  currency?: 'INR' | 'USD';
+  closedBy?: string;
+}): ReturnType<typeof buildYearEndClose> {
+  const closes = getPeriodCloses();
+  const yearEndMonth = input.yearEndMonth ?? 12;
+  const yearEndPeriod = `${input.yearEndYear}-${String(yearEndMonth).padStart(2, '0')}`;
+  assertPeriodOpen(yearEndPeriod, closes);
 
-  return Object.entries(byAccount).map(([code, { debit, credit }]) => ({
-    glAccountCode: code,
-    accountName: chart.find((a) => a.code === code)?.name ?? code,
-    debit,
-    credit,
-  }));
+  const chart = ensureRetainedEarnings(getChartOfAccounts());
+  const entries = getJournalEntries();
+  const result = buildYearEndClose({
+    entries,
+    chart,
+    yearEndYear: input.yearEndYear,
+    yearEndMonth,
+    currency: input.currency,
+    closedBy: input.closedBy,
+    nextJournalNumber: nextJournalNumber(entries),
+  });
+
+  const existingPeriods = new Set(closes.map((c) => c.period));
+  const newCloses = result.lockedPeriods.filter((p) => !existingPeriods.has(p.period));
+  setPeriodCloses([...closes, ...newCloses]);
+  setJournalEntries([result.closingEntry, ...entries]);
+  return result;
+}
+
+export function listPeriodStatuses(periods: string[]): Array<{ period: string; status: PeriodStatus }> {
+  const closes = getPeriodCloses();
+  return periods.map((period) => ({ period, status: getPeriodStatus(period, closes) }));
+}
+
+/** Ensure default chart includes Retained Earnings (idempotent). */
+export function ensureDefaultRetainedEarningsAccount(chart: GLAccount[]): GLAccount[] {
+  return ensureRetainedEarnings(chart);
 }

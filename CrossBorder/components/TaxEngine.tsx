@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { getTaxEngineData, setTaxEngineData, getCompanyProfile } from '../services/storageService';
+import { generateForm26q } from '../services/filings';
+import type { CompanyProfile } from '../types';
 
-function downloadFile(content: string, filename: string, mimeType: string = 'text/plain') {
-  const blob = new Blob([content], { type: mimeType });
+function downloadCsv(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -12,42 +14,32 @@ function downloadFile(content: string, filename: string, mimeType: string = 'tex
   URL.revokeObjectURL(url);
 }
 
-/** Generate Form 26Q-style CSV for TDS on payments other than salary (e.g. partner remuneration Sec 194T). */
-function generateForm26QCSV() {
-  const profile = getCompanyProfile();
-  const data = getTaxEngineData();
-  const bookProfit = data.bookProfit ?? 0;
+/** Partner remuneration Sec 194T row for Form 26Q when book profit drives Sec 40(b) max rem. */
+function exportPartner194TForm26q(profile: CompanyProfile, bookProfit: number): void {
   const first3L = Math.min(bookProfit, 300000) * 0.9;
   const balance = Math.max(0, bookProfit - 300000) * 0.6;
   const maxRem = Math.max(150000, first3L + balance);
   const tds194T = maxRem > 20000 ? maxRem * 0.1 : 0;
-
-  const header = ['Sr No', 'PAN of Deductee', 'Name', 'Section Code', 'Payment Date', 'Amount Paid', 'TDS Deducted', 'TAN of Deductor', 'Assessment Year'].join(',');
-  const rows: string[] = [];
-  if (tds194T > 0) {
-    rows.push([
-      1,
-      profile?.parent?.pan || 'PANNOTAVBL',
-      `"Partner Remuneration (Sec 40b)"`,
-      '194T',
-      new Date().toISOString().split('T')[0],
-      Math.round(maxRem),
-      Math.round(tds194T),
-      profile?.parent?.taxId || '',
-      '2026-27',
-    ].join(','));
+  const result = generateForm26q({
+    quarter: 'Q4',
+    financialYear: '2025-26',
+    profile,
+    deductees: tds194T > 0
+      ? [{
+          pan: profile.parent?.pan || 'PANNOTAVBL',
+          name: 'Partner Remuneration (Sec 40b)',
+          section: '194T',
+          amountPaid: maxRem,
+          tdsDeducted: tds194T,
+          paymentDate: new Date().toISOString().split('T')[0],
+        }]
+      : [],
+  });
+  if (!result.ok) {
+    throw new Error(result.issues.map((i) => i.message).join('; '));
   }
-
-  const content = [
-    `# Form 26Q - Quarterly Statement of TDS (Other than Salary)`,
-    `# Generated: ${new Date().toISOString()}`,
-    `# Deductor: ${profile?.parent?.name || ''} | TAN: ${profile?.parent?.taxId || ''}`,
-    '',
-    header,
-    ...rows,
-  ].join('\n');
-
-  downloadFile(content, 'Form26Q_FY2025-26.csv', 'text/csv');
+  const payload = result.data as { csv: string };
+  downloadCsv(payload.csv, 'Form26Q_FY2025-26.csv');
 }
 
 const TaxEngine: React.FC = () => {
@@ -135,7 +127,13 @@ const TaxEngine: React.FC = () => {
 
           <button
             onClick={() => {
-              generateForm26QCSV();
+              const profile = getCompanyProfile();
+              if (!profile) return;
+              try {
+                exportPartner194TForm26q(profile, bookProfit);
+              } catch (err) {
+                console.error(err);
+              }
             }}
             className="w-full py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
           >

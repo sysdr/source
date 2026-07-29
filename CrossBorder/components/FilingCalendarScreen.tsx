@@ -1,7 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { getFilingTasks, updateFilingTask } from '../services/storageService';
-import { getOverdueFilings, getUpcomingFilings, seedDefaultFilingTasksForFY, markFilingFiled, ensureFilingTask } from '../services/filingCalendarService';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  getFilingTasks,
+  updateFilingTask,
+  getTransactions,
+  getEmployees,
+  getPayrollRuns,
+  getCompanyProfile,
+} from '../services/storageService';
+import { getOverdueFilings, getUpcomingFilings, seedDefaultFilingTasksForFY, ensureFilingTask } from '../services/filingCalendarService';
+import {
+  buildComplianceStatusReport,
+  deriveFilingStatus,
+  type FilingComplianceItem,
+  type ReadinessLevel,
+} from '../services/complianceStatusEngine';
 import type { FilingTask, FilingTaskStatus, FilingTaskType } from '../types';
+import {
+  applyFilingAcknowledgement,
+  getPortalLinkForFiling,
+} from '../services/filingAcknowledgement';
 
 type CalTab = 'upcoming' | 'overdue' | 'all';
 
@@ -17,6 +34,13 @@ const STATUS_STYLES: Record<FilingTaskStatus, { bg: string; color: string; label
 };
 
 const STATUS_ORDER: FilingTaskStatus[] = ['Pending', 'InProgress', 'Filed', 'Overdue', 'NotApplicable'];
+
+const READINESS_STYLES: Record<ReadinessLevel, { bg: string; color: string; label: string }> = {
+  ready: { bg: '#dcfce7', color: '#16a34a', label: 'Data ready' },
+  partial: { bg: '#fef9c3', color: '#a16207', label: 'Partial' },
+  blocked: { bg: '#fee2e2', color: '#dc2626', label: 'Blocked' },
+  'n/a': { bg: '#f3f4f6', color: '#6b7280', label: '—' },
+};
 
 function nextStatus(current: FilingTaskStatus): FilingTaskStatus {
   const idx = STATUS_ORDER.indexOf(current);
@@ -58,6 +82,9 @@ const FilingCalendarScreen: React.FC = () => {
   const [editNotes, setEditNotes] = useState('');
   const [editFiledDate, setEditFiledDate] = useState('');
   const [editStatus, setEditStatus] = useState<FilingTaskStatus>('Pending');
+  const [editAck, setEditAck] = useState('');
+  const [editEvidence, setEditEvidence] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Manual add task
   const [showAddForm, setShowAddForm] = useState(false);
@@ -72,7 +99,29 @@ const FilingCalendarScreen: React.FC = () => {
     return () => window.removeEventListener('suez_data_updated', refresh);
   }, [refresh]);
 
-  const overdue  = getOverdueFilings();
+  const complianceByTaskId = useMemo(() => {
+    const profile = getCompanyProfile();
+    const taxId = profile?.parent?.taxId || '';
+    const report = buildComplianceStatusReport({
+      tasks,
+      transactions: getTransactions(),
+      employees: getEmployees(),
+      payrollRuns: getPayrollRuns(),
+      hasGstin: taxId.length >= 15,
+      hasTan: !!(profile?.parent?.tan || (taxId.length >= 10 && taxId.length < 15)),
+    });
+    const map = new Map<string, FilingComplianceItem>();
+    for (const item of report.items) map.set(item.taskId, item);
+    return { report, map };
+  }, [tasks]);
+
+  const overdue = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return tasks.filter((t) => {
+      const derived = deriveFilingStatus(t, today);
+      return derived === 'Overdue';
+    });
+  }, [tasks]);
   const upcoming = getUpcomingFilings(60);
 
   const handleSeed = () => {
@@ -93,18 +142,67 @@ const FilingCalendarScreen: React.FC = () => {
     setEditNotes(task.notes ?? '');
     setEditFiledDate(task.filedDate ?? '');
     setEditStatus(task.status);
+    setEditAck(task.acknowledgementNumber ?? '');
+    setEditEvidence((task.evidenceLinks ?? []).join('\n'));
+    setEditError(null);
   };
 
-  const handleSaveEdit = (taskId: string) => {
-    const updates: Partial<FilingTask> = {
-      status: editStatus,
-      notes: editNotes.trim() || undefined,
-      updatedAt: new Date().toISOString(),
-    };
+  const handleSaveEdit = (task: FilingTask) => {
+    setEditError(null);
+    const evidenceLinks = editEvidence.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
     if (editStatus === 'Filed') {
-      updates.filedDate = editFiledDate || new Date().toISOString().slice(0, 10);
+      const { task: updated, validation } = applyFilingAcknowledgement(task, {
+        acknowledgementNumber: editAck,
+        filedDate: editFiledDate || new Date().toISOString().slice(0, 10),
+        evidenceLinks,
+        notes: editNotes,
+        documentIds: task.documentIds,
+      });
+      if (!validation.ok) {
+        setEditError(validation.errors.join('; '));
+        return;
+      }
+      updateFilingTask(task.id, {
+        status: updated.status,
+        filedDate: updated.filedDate,
+        acknowledgementNumber: updated.acknowledgementNumber,
+        evidenceLinks: updated.evidenceLinks,
+        notes: updated.notes,
+      });
+    } else {
+      updateFilingTask(task.id, {
+        status: editStatus,
+        notes: editNotes.trim() || undefined,
+        acknowledgementNumber: editAck.trim() || undefined,
+        evidenceLinks: evidenceLinks.length ? evidenceLinks : undefined,
+        updatedAt: new Date().toISOString(),
+      });
     }
-    updateFilingTask(taskId, updates);
+    setEditingId(null);
+    refresh();
+  };
+
+  const handleMarkFiled = (task: FilingTask) => {
+    setEditError(null);
+    const evidenceLinks = editEvidence.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+    const { task: updated, validation } = applyFilingAcknowledgement(task, {
+      acknowledgementNumber: editAck,
+      filedDate: editFiledDate || new Date().toISOString().slice(0, 10),
+      evidenceLinks,
+      notes: editNotes,
+      documentIds: task.documentIds,
+    });
+    if (!validation.ok) {
+      setEditError(validation.errors.join('; '));
+      return;
+    }
+    updateFilingTask(task.id, {
+      status: updated.status,
+      filedDate: updated.filedDate,
+      acknowledgementNumber: updated.acknowledgementNumber,
+      evidenceLinks: updated.evidenceLinks,
+      notes: updated.notes,
+    });
     setEditingId(null);
     refresh();
   };
@@ -138,8 +236,13 @@ const FilingCalendarScreen: React.FC = () => {
   })).filter(g => g.tasks.length > 0);
 
   const renderTaskRow = (task: FilingTask, compact = false) => {
-    const due = getDueBadge(task);
-    const statusStyle = STATUS_STYLES[task.status] ?? STATUS_STYLES.Pending;
+    const today = new Date().toISOString().slice(0, 10);
+    const derived = deriveFilingStatus(task, today);
+    const due = getDueBadge({ ...task, status: derived });
+    const statusStyle = STATUS_STYLES[derived] ?? STATUS_STYLES.Pending;
+    const compliance = complianceByTaskId.map.get(task.id);
+    const readiness = compliance?.readiness ?? 'n/a';
+    const readyStyle = READINESS_STYLES[readiness];
     const isEditing = editingId === task.id;
     return (
       <React.Fragment key={task.id}>
@@ -158,11 +261,27 @@ const FilingCalendarScreen: React.FC = () => {
               {statusStyle.label}
             </button>
           </td>
+          <td className="py-3 px-4">
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-lg font-black uppercase tracking-wider"
+              style={{ background: readyStyle.bg, color: readyStyle.color }}
+              title={compliance?.blockers.map((b) => b.message).join('; ') || undefined}
+            >
+              {readyStyle.label}
+            </span>
+            {compliance && compliance.blockers.length > 0 && readiness !== 'n/a' && (
+              <div className="text-[10px] mt-1 max-w-[180px]" style={{ color: 'var(--text-muted)' }}>
+                {compliance.blockers[0].message}
+              </div>
+            )}
+          </td>
           <td className="py-3 px-4 text-xs hidden lg:table-cell" style={{ color: due.color }}>
             {due.text}
           </td>
           <td className="py-3 px-4 text-xs hidden lg:table-cell max-w-xs truncate" style={{ color: 'var(--text-muted)' }}>
-            {task.notes ?? '—'}
+            {task.acknowledgementNumber
+              ? <span title={task.notes}>Ack: {task.acknowledgementNumber}</span>
+              : (task.notes ?? '—')}
           </td>
           <td className="py-3 px-4 text-xs">
             <button type="button" onClick={() => isEditing ? setEditingId(null) : handleOpenEdit(task)}
@@ -192,13 +311,42 @@ const FilingCalendarScreen: React.FC = () => {
                     </div>
                   )}
                   <div className={editStatus === 'Filed' ? '' : 'col-span-2'}>
-                    <label className="text-xs font-heading font-semibold block mb-1" style={{ color: 'var(--text-muted)' }}>Notes / Ack. Number</label>
-                    <input type="text" placeholder="Acknowledgement / challan reference..." value={editNotes} onChange={e => setEditNotes(e.target.value)}
+                    <label className="text-xs font-heading font-semibold block mb-1" style={{ color: 'var(--text-muted)' }}>Notes</label>
+                    <input type="text" placeholder="Optional notes..." value={editNotes} onChange={e => setEditNotes(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }} />
                   </div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-heading font-semibold block mb-1" style={{ color: 'var(--text-muted)' }}>
+                      Acknowledgement / ARN
+                    </label>
+                    <input type="text" placeholder="Portal acknowledgement number" value={editAck} onChange={e => setEditAck(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-heading font-semibold block mb-1" style={{ color: 'var(--text-muted)' }}>
+                      Evidence links (one per line)
+                    </label>
+                    <textarea rows={2} placeholder="https://… or vault:doc-id" value={editEvidence} onChange={e => setEditEvidence(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }} />
+                  </div>
+                </div>
+                {(() => {
+                  const portal = getPortalLinkForFiling(task.type);
+                  if (!portal) return null;
+                  return (
+                    <a href={portal.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex text-xs font-semibold underline" style={{ color: '#0369a1' }}>
+                      {portal.label} ↗
+                    </a>
+                  );
+                })()}
+                {editError && (
+                  <p className="text-xs font-semibold" style={{ color: '#dc2626' }}>{editError}</p>
+                )}
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => handleSaveEdit(task.id)}
+                  <button type="button" onClick={() => handleSaveEdit(task)}
                     className="font-heading px-4 py-1.5 rounded-lg text-sm font-semibold text-white" style={{ background: 'var(--bg-sidebar)' }}>
                     Save
                   </button>
@@ -207,7 +355,7 @@ const FilingCalendarScreen: React.FC = () => {
                     Cancel
                   </button>
                   {task.status !== 'Filed' && (
-                    <button type="button" onClick={() => { markFilingFiled(task.id, editFiledDate || new Date().toISOString().slice(0, 10)); setEditingId(null); refresh(); }}
+                    <button type="button" onClick={() => handleMarkFiled(task)}
                       className="font-heading px-4 py-1.5 rounded-lg text-sm font-semibold ml-auto" style={{ background: '#dcfce7', color: '#16a34a' }}>
                       Mark as Filed ✓
                     </button>
@@ -229,6 +377,8 @@ const FilingCalendarScreen: React.FC = () => {
           <h1 className="font-heading text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Filing Calendar</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
             {tasks.length} tasks · {overdue.length} overdue · {upcoming.length} due in 60 days
+            {' · '}
+            {complianceByTaskId.report.summary.ready} data-ready · {complianceByTaskId.report.summary.blocked} blocked
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -360,6 +510,7 @@ const FilingCalendarScreen: React.FC = () => {
                     <th className="text-left py-2 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-muted)' }}>Period</th>
                     <th className="text-left py-2 px-4 font-heading font-semibold text-xs hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>Due Date</th>
                     <th className="text-left py-2 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-muted)' }}>Status</th>
+                    <th className="text-left py-2 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-muted)' }}>Readiness</th>
                     <th className="text-left py-2 px-4 font-heading font-semibold text-xs hidden lg:table-cell" style={{ color: 'var(--text-muted)' }}>Due In</th>
                     <th className="text-left py-2 px-4 font-heading font-semibold text-xs hidden lg:table-cell" style={{ color: 'var(--text-muted)' }}>Notes</th>
                     <th className="py-2 px-4" />
@@ -382,6 +533,7 @@ const FilingCalendarScreen: React.FC = () => {
                 <th className="text-left py-3 px-4 font-heading font-semibold text-xs hidden md:table-cell" style={{ color: 'var(--text-secondary)' }}>Period</th>
                 <th className="text-left py-3 px-4 font-heading font-semibold text-xs hidden md:table-cell" style={{ color: 'var(--text-secondary)' }}>Due Date</th>
                 <th className="text-left py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>Status</th>
+                <th className="text-left py-3 px-4 font-heading font-semibold text-xs" style={{ color: 'var(--text-secondary)' }}>Readiness</th>
                 <th className="text-left py-3 px-4 font-heading font-semibold text-xs hidden lg:table-cell" style={{ color: 'var(--text-secondary)' }}>Due In</th>
                 <th className="text-left py-3 px-4 font-heading font-semibold text-xs hidden lg:table-cell" style={{ color: 'var(--text-secondary)' }}>Notes</th>
                 <th className="py-3 px-4" />

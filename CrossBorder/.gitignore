@@ -23,6 +23,9 @@ dist-ssr
 # Runtime document uploads (PDFs, certificates, etc.)
 data/documents/
 
+# Automated SQLite backups (REQ-032 / REQ-067) — never commit
+data/backups/
+
 # SQLite WAL sidecars — main DB file data/suez.db is tracked for clone bootstrap
 data/*.db-wal
 data/*.db-shm
@@ -52,3 +55,6 @@ Thumbs.db
 
 # Local AI / tool settings
 .claude/settings.local.json
+
+.stryker-tmp/
+reports/

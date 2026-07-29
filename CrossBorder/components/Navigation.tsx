@@ -80,6 +80,7 @@ const SECTIONS: Section[] = [
       { id: 'revenue',    label: 'Revenue',          icon: 'revenue'    },
       { id: 'vendors',    label: 'Vendors & AP',     icon: 'vendors'    },
       { id: 'journal',    label: 'Journal Entries',  icon: 'journal'    },
+      { id: 'recon',      label: 'Reconciliation',   icon: 'accounting' },
       { id: 'accounting', label: 'Financial Books',  icon: 'accounting' },
       { id: 'finance',    label: 'P&E by Entity',    icon: 'finance'    },
       { id: 'transfer',   label: 'Transfer Pricing', icon: 'transfer'   },

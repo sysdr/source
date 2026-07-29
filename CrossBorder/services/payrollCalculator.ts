@@ -1,5 +1,11 @@
 import { Employee, SalarySlip, PayrollRunSlip, LeaveRequest } from '../types';
 import { PayrollConfig } from '../types';
+import {
+  ESI_EMPLOYEE_RATE,
+  ESI_EMPLOYER_RATE,
+  ESI_GROSS_CEILING,
+  evaluateEsi,
+} from './tdsRules';
 
 // ── Professional Tax Slabs by State (monthly) ──────────────────────────────
 
@@ -108,17 +114,14 @@ export function calculateTDSOldRegime(
 
 // ── ESI Calculation ─────────────────────────────────────────────────────────
 
-const ESI_GROSS_LIMIT = 21000;
-const ESI_EMPLOYEE_RATE = 0.0075;
-const ESI_EMPLOYER_RATE = 0.0325;
-
 export function calculateESI(monthlyGross: number, esiEnabled: boolean): { employee: number; employer: number } {
-  if (!esiEnabled || monthlyGross > ESI_GROSS_LIMIT) return { employee: 0, employer: 0 };
-  return {
-    employee: Math.round(monthlyGross * ESI_EMPLOYEE_RATE),
-    employer: Math.round(monthlyGross * ESI_EMPLOYER_RATE),
-  };
+  const result = evaluateEsi({ monthlyGross, esiEnabled });
+  return { employee: result.employeeContribution, employer: result.employerContribution };
 }
+
+/** Re-export ceiling for UI/docs — single source of truth with tdsRules. */
+export const ESI_GROSS_LIMIT = ESI_GROSS_CEILING;
+export { ESI_EMPLOYEE_RATE, ESI_EMPLOYER_RATE };
 
 // ── EPF / EPS / EDLI Calculation ────────────────────────────────────────────
 

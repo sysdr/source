@@ -1,0 +1,19 @@
+{
+  "artifact": "demo_environment",
+  "version": "1.1.0",
+  "standup_command": "npm run seed:db && npm run server",
+  "demo_dry_run": "npm run demo:p0",
+  "dev_command": "npm run dev",
+  "seed_command": "npm run seed:db",
+  "org_id_hint": "default",
+  "viewports": ["1280", "768", "375"],
+  "p0_flows": [
+    "consolidated_dashboard",
+    "oidar_export_classification",
+    "filing_ready_export"
+  ],
+  "verified": {
+    "api_dry_run": "pass",
+    "verified_at": "2026-07-29T16:41:00Z"
+  }
+}

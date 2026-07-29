@@ -1,0 +1,180 @@
+{
+  "meta": {
+    "artifact": "system_architecture",
+    "version": "1.1.0",
+    "phase": "design",
+    "cycle": 1
+  },
+  "scope": {
+    "mode": "single_organization_mvp",
+    "entities_supported": ["India-LLP", "India-PvtLtd", "US-CCorp", "US-LLC"],
+    "deployment_topology": "react-web-client + node-api + sqlite-system-of-record",
+    "session_policy": {
+      "write_sessions": "single_active_owner_writer",
+      "read_sessions": "owner_or_accountant_read_only_allowed",
+      "note": "This design interpretation resolves REQ-070/REQ-073 tension and should be codified in a follow-up requirement amendment."
+    }
+  },
+  "bounded_contexts": [
+    {
+      "name": "Core",
+      "responsibilities": [
+        "role and policy enforcement",
+        "auth/session primitives",
+        "settings and tenant profile",
+        "fx rate provider and cache",
+        "audit trail, retention, backup",
+        "import pipeline"
+      ],
+      "primary_requirements": ["REQ-026", "REQ-027", "REQ-028", "REQ-030", "REQ-032", "REQ-033", "REQ-065", "REQ-067", "REQ-068", "REQ-070", "REQ-072", "REQ-077"]
+    },
+    {
+      "name": "Onboarding",
+      "responsibilities": [
+        "entity capture and validation",
+        "tax identifier validation",
+        "channel and category setup"
+      ],
+      "primary_requirements": ["REQ-040", "REQ-056", "REQ-076"]
+    },
+    {
+      "name": "RevenueIngestion",
+      "responsibilities": [
+        "stripe sync",
+        "webhook processing with idempotency",
+        "multi-source transaction normalization",
+        "gst category derivation seeds"
+      ],
+      "primary_requirements": ["REQ-006", "REQ-044", "REQ-045", "REQ-046", "REQ-078"]
+    },
+    {
+      "name": "Accounting",
+      "responsibilities": [
+        "general ledger and journals",
+        "period close and reversal entries",
+        "reconciliation workbench",
+        "fixed assets and depreciation",
+        "multi-currency valuation",
+        "tally-compatible exports"
+      ],
+      "primary_requirements": ["REQ-015", "REQ-023", "REQ-042", "REQ-058", "REQ-060", "REQ-061", "REQ-063", "REQ-079", "REQ-081"]
+    },
+    {
+      "name": "Payroll",
+      "responsibilities": [
+        "employee master data",
+        "batch payroll processing",
+        "tds, pf, esi, pt calculators",
+        "24q, 26q, epf ecr export inputs"
+      ],
+      "primary_requirements": ["REQ-009", "REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-035", "REQ-037", "REQ-059", "REQ-062"]
+    },
+    {
+      "name": "TaxEngine",
+      "responsibilities": [
+        "sec 40(b) and sec 194t calculations",
+        "advance tax tracking",
+        "form 5472 transaction model",
+        "us tax draft support"
+      ],
+      "primary_requirements": ["REQ-003", "REQ-014", "REQ-020", "REQ-025", "REQ-064"]
+    },
+    {
+      "name": "ComplianceHub",
+      "responsibilities": [
+        "filing calendar and readiness state",
+        "schema validation pipeline",
+        "disclaimer and evidence attachment",
+        "manual filing acknowledgement and status updates",
+        "firc and odi status tracking"
+      ],
+      "primary_requirements": ["REQ-002", "REQ-004", "REQ-007", "REQ-008", "REQ-017", "REQ-018", "REQ-019", "REQ-029", "REQ-036", "REQ-038", "REQ-041", "REQ-054", "REQ-055", "REQ-080"]
+    },
+    {
+      "name": "GSTCenter",
+      "responsibilities": [
+        "gstr-1 and gstr-3b generation",
+        "gstr-2b reconciliation integration"
+      ],
+      "primary_requirements": ["REQ-007", "REQ-008", "REQ-016", "REQ-048"]
+    },
+    {
+      "name": "Invoicing",
+      "responsibilities": [
+        "invoice authoring",
+        "tax computation",
+        "pdf generation",
+        "invoice compliance handoff to ai assistant"
+      ],
+      "primary_requirements": ["REQ-022", "REQ-043"]
+    },
+    {
+      "name": "AP",
+      "responsibilities": [
+        "vendor and bill workflows",
+        "payment runs",
+        "vendor tds calculations"
+      ],
+      "primary_requirements": ["REQ-023", "REQ-062"]
+    },
+    {
+      "name": "Auth",
+      "responsibilities": [
+        "accountant invitation and token lifecycle",
+        "role-aware session issuance"
+      ],
+      "primary_requirements": ["REQ-072", "REQ-073"]
+    },
+    {
+      "name": "AIAssistant",
+      "responsibilities": [
+        "provider fallback orchestration",
+        "query context shaping",
+        "invoice analysis endpoint"
+      ],
+      "primary_requirements": ["REQ-052", "REQ-043"]
+    },
+    {
+      "name": "Notifications",
+      "responsibilities": [
+        "smtp reminders and job outcomes",
+        "deadline and failure notifications"
+      ],
+      "primary_requirements": ["REQ-051", "REQ-075"]
+    }
+  ],
+  "cross_cutting_controls": {
+    "security": [
+      "pii encryption at rest",
+      "field masking in ui",
+      "role-based authorization at api boundary",
+      "ci dependency scanning and pre-release penetration test"
+    ],
+    "quality": [
+      "contract tests for all filing schemas",
+      "integration tests for external systems",
+      "traceability from requirement to test cases",
+      "explicit loading/success/failure ui states for async flows"
+    ],
+    "operations": [
+      "rto 4h and rpo 24h",
+      "daily backup with restore drill evidence",
+      "structured error events and observability",
+      "feature flags for irreversible or high-blast-radius paths"
+    ]
+  },
+  "milestones": [
+    {
+      "name": "Wave 1 - Compliance correctness",
+      "focus": ["REQ-007", "REQ-008", "REQ-009", "REQ-014", "REQ-029", "REQ-048", "REQ-049", "REQ-054", "REQ-055"]
+    },
+    {
+      "name": "Wave 2 - Payroll and reconciliation",
+      "focus": ["REQ-011", "REQ-058", "REQ-059", "REQ-060", "REQ-062", "REQ-077", "REQ-078", "REQ-079"]
+    },
+    {
+      "name": "Wave 3 - Security and resilience",
+      "focus": ["REQ-026", "REQ-027", "REQ-028", "REQ-030", "REQ-067", "REQ-068", "REQ-071", "REQ-072", "REQ-073"]
+    }
+  ]
+}

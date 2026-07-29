@@ -1,4 +1,4 @@
-import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord, SmtpSettings, EmployeeInvite } from '../types';
+import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord, OdiProfile, SmtpSettings, EmployeeInvite } from '../types';
 import { setIfChanged, remove as persistentRemove, clearHashes } from './persistentStorage';
 import { dbSet, dbDelete, dbClear } from './dbSync';
 import { api } from './apiClient';
@@ -116,6 +116,7 @@ export interface OrganisationRecord {
   contractor1099s?: Contractor1099[];
   filingTasks?: FilingTask[];
   remittanceRecords?: RemittanceRecord[];
+  odiProfile?: OdiProfile;
   archived?: boolean;
   archivedAt?: string;
 }
@@ -892,11 +893,15 @@ const DEFAULT_GL_ACCOUNTS: GLAccount[] = [
   { code: '6400', name: 'Rent & Utilities', type: 'Expense' },
   { code: '6500', name: 'Professional Services', type: 'Expense' },
   { code: '6600', name: 'Transfer Pricing', type: 'Expense' },
-  { code: '6900', name: 'Other Expenses', type: 'Expense' },
   { code: '1000', name: 'Bank/Cash', type: 'Asset' },
   { code: '1500', name: 'Fixed Assets', type: 'Asset' },
+  { code: '1600', name: 'Accumulated Depreciation', type: 'Asset' },
   { code: '2000', name: 'Payables', type: 'Liability' },
   { code: '3000', name: 'Equity', type: 'Equity' },
+  { code: '3100', name: 'Retained Earnings', type: 'Equity' },
+  { code: '6800', name: 'Depreciation Expense', type: 'Expense' },
+  { code: '6900', name: 'Other Expenses', type: 'Expense' },
+  { code: '7100', name: 'FX Gain/Loss', type: 'Expense' },
 ];
 
 export const getChartOfAccounts = (): GLAccount[] => {
@@ -1052,6 +1057,18 @@ export const updateFilingTask = (id: string, updates: Partial<FilingTask>): void
 export const getRemittanceRecords = (): RemittanceRecord[] => getOrgArray('remittanceRecords');
 export const setRemittanceRecords = (list: RemittanceRecord[]): void => setOrgArray('remittanceRecords', list);
 export const addRemittanceRecord = (r: RemittanceRecord): void => setRemittanceRecords([r, ...getRemittanceRecords()]);
+export const updateRemittanceRecord = (id: string, updates: Partial<RemittanceRecord>): void => {
+  setRemittanceRecords(getRemittanceRecords().map((r) => (r.id === id ? { ...r, ...updates } : r)));
+};
+
+export const getOdiProfile = (): OdiProfile | null => getActiveOrg()?.odiProfile ?? null;
+export const setOdiProfile = (profile: OdiProfile): void => {
+  updateActiveOrg((org) => ({
+    ...org,
+    odiProfile: { ...profile, updatedAt: new Date().toISOString() },
+  }));
+  window.dispatchEvent(new Event('suez_data_updated'));
+};
 
 export const deleteEmployee = (id: string): void => {
   const all = getAllEmployeesIncludingArchived();

@@ -30,3 +30,9 @@ Do not commit `*.db-wal` / `*.db-shm`.
 
 - `npm test` / `npm run test:watch`
 - CI runs on push and pull request
+
+## Software Factory Agents
+
+- Factory agents are installed in `.claude/agents` with project rules in `.claude/CLAUDE.md` and `AGENTS.md`.
+- Use `docs/software-factory-playbook.md` for the run order:
+  domain expertise -> requirements + missing requirements -> design -> develop -> test/automate/verify.

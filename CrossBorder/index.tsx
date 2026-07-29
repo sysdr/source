@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { hydrateFromDB } from './services/dbSync';
 import { seedDefaultOrganisationIfNeeded } from './services/defaultOrganisation';
+import './styles/tailwind.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

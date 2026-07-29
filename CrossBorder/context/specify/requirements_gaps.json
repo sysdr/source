@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "agent_id": "requirements-engineer",
+    "phase": "specify",
+    "cycle": 1,
+    "generated_at": "2026-07-29T08:30:00Z",
+    "updated_at": "2026-07-29T09:35:00Z",
+    "description": "Missing requirements analysis across all five requirement classes — all 29 gaps resolved in cycle 1 (REQ-053 to REQ-081)"
+  },
+
+  "gaps": {
+
+    "business": [
+      {"gap_id": "GAP-B-001", "status": "resolved", "closed_by": "REQ-053", "description": "No pricing / monetization model requirement.", "severity": "high"},
+      {"gap_id": "GAP-B-002", "status": "resolved", "closed_by": "REQ-054", "description": "No corridor rollout strategy / MVP filing priority.", "severity": "high"},
+      {"gap_id": "GAP-B-003", "status": "resolved", "closed_by": "REQ-055", "description": "No compliance ownership / disclaimer requirement.", "severity": "medium"},
+      {"gap_id": "GAP-B-004", "status": "resolved", "closed_by": "REQ-056", "description": "No multi-entity-type support requirement.", "severity": "medium"},
+      {"gap_id": "GAP-B-005", "status": "resolved", "closed_by": "REQ-057", "description": "No competitive differentiation requirement.", "severity": "medium"}
+    ],
+
+    "functional": [
+      {"gap_id": "GAP-F-001", "status": "resolved", "closed_by": "REQ-058", "description": "No reconciliation flow requirement.", "severity": "high"},
+      {"gap_id": "GAP-F-002", "status": "resolved", "closed_by": "REQ-059", "description": "No payroll error/failure path requirement.", "severity": "high"},
+      {"gap_id": "GAP-F-003", "status": "resolved", "closed_by": "REQ-060", "description": "No year-end / period-close requirement.", "severity": "high"},
+      {"gap_id": "GAP-F-004", "status": "resolved", "closed_by": "REQ-061", "description": "No multi-currency accounting requirement.", "severity": "medium"},
+      {"gap_id": "GAP-F-005", "status": "resolved", "closed_by": "REQ-062", "description": "No TDS on vendor payments requirement.", "severity": "high"},
+      {"gap_id": "GAP-F-006", "status": "resolved", "closed_by": "REQ-063", "description": "No fixed asset / depreciation register requirement.", "severity": "low"},
+      {"gap_id": "GAP-F-007", "status": "resolved", "closed_by": "REQ-064", "description": "No advance tax computation requirement.", "severity": "medium"},
+      {"gap_id": "GAP-F-008", "status": "resolved", "closed_by": "REQ-065", "description": "No data import/migration requirement.", "severity": "medium"}
+    ],
+
+    "non_functional": [
+      {"gap_id": "GAP-NF-001", "status": "resolved", "closed_by": "REQ-066", "description": "No latency SLOs.", "severity": "medium"},
+      {"gap_id": "GAP-NF-002", "status": "resolved", "closed_by": "REQ-067", "description": "No RTO / RPO specified.", "severity": "medium"},
+      {"gap_id": "GAP-NF-003", "status": "resolved", "closed_by": "REQ-068", "description": "No data retention policy requirement.", "severity": "high"},
+      {"gap_id": "GAP-NF-004", "status": "resolved", "closed_by": "REQ-069", "description": "No accessibility requirement.", "severity": "low"},
+      {"gap_id": "GAP-NF-005", "status": "resolved", "closed_by": "REQ-070", "description": "No concurrency / throughput target.", "severity": "medium"},
+      {"gap_id": "GAP-NF-006", "status": "resolved", "closed_by": "REQ-071", "description": "No security testing requirement.", "severity": "high"}
+    ],
+
+    "user": [
+      {"gap_id": "GAP-U-001", "status": "resolved", "closed_by": "REQ-072", "description": "No role / permission model requirement.", "severity": "high"},
+      {"gap_id": "GAP-U-002", "status": "resolved", "closed_by": "REQ-073", "description": "No accountant invite / read-only access requirement.", "severity": "medium"},
+      {"gap_id": "GAP-U-003", "status": "resolved", "closed_by": "REQ-074", "description": "No mobile / responsive design requirement.", "severity": "low"},
+      {"gap_id": "GAP-U-004", "status": "resolved", "closed_by": "REQ-075", "description": "No error state UX requirement.", "severity": "high"},
+      {"gap_id": "GAP-U-005", "status": "resolved", "closed_by": "REQ-076", "description": "No onboarding data validation requirement.", "severity": "high"}
+    ],
+
+    "external_interface": [
+      {"gap_id": "GAP-EI-001", "status": "resolved", "closed_by": "REQ-077", "description": "No rate-limit / retry handling requirement.", "severity": "medium"},
+      {"gap_id": "GAP-EI-002", "status": "resolved", "closed_by": "REQ-078", "description": "No Stripe webhook requirement.", "severity": "medium"},
+      {"gap_id": "GAP-EI-003", "status": "resolved", "closed_by": "REQ-079", "description": "No Indian bank feed integration requirement.", "severity": "high"},
+      {"gap_id": "GAP-EI-004", "status": "resolved", "closed_by": "REQ-080", "description": "No GSTN API integration requirement.", "severity": "low"},
+      {"gap_id": "GAP-EI-005", "status": "resolved", "closed_by": "REQ-081", "description": "No Tally/Zoho/QuickBooks export requirement.", "severity": "medium"}
+    ]
+  },
+
+  "summary": {
+    "total_gaps": 29,
+    "resolved": 29,
+    "open": 0,
+    "by_severity": {"high": 14, "medium": 11, "low": 4},
+    "by_class": {"business": 5, "functional": 8, "non_functional": 6, "user": 5, "external_interface": 5},
+    "requirements_added": {"from": "REQ-053", "to": "REQ-081", "count": 29},
+    "blocking_for_gate_1": "all resolved"
+  }
+}

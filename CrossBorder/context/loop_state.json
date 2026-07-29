@@ -1,0 +1,44 @@
+{
+  "project": "Project Suez — Cross-Border Financial OS",
+  "repository": "CrossBorder",
+  "cycle": 1,
+  "max_cycles": 6,
+  "cycle_started": "2026-07-29",
+  "cycle_objective": "Gate-3 verification floors — flake 0/10, SBOM, demo dry-run",
+  "requested_scope": "Phase 4/5 verify nearly complete; remaining: DAST, SR a11y, full Stryker, manual screenshots",
+  "phases_in_scope": ["knowledge", "specify", "design", "build", "verify", "review"],
+  "phases_out_of_scope": ["deploy"],
+  "token_budget_remaining": 0.3,
+  "scorecard_history": [
+    { "cycle": 1, "pass": "baseline", "composite": 82, "composite_capped_by_floor": 72 },
+    { "cycle": 1, "pass": "harden", "composite": 88, "composite_capped_by_floor": 84, "marginal_gain": 6 },
+    { "cycle": 1, "pass": "gate3-prep", "composite": 90, "composite_capped_by_floor": 86, "marginal_gain": 2 }
+  ],
+  "marginal_gain_last_cycle": 2,
+  "convergence_threshold": 3,
+  "re_entry_phase": 4,
+  "exit_reason": null,
+  "gate_status": {
+    "gate_0": "not_open",
+    "gate_1": "not_open",
+    "gate_2": "not_open",
+    "gate_3": "not_reached"
+  },
+  "verify_status": {
+    "suite_pass": "231/231",
+    "flake_rate": 0,
+    "flake_runs": 10,
+    "ledger_p95_ms": 4,
+    "axe_serious_critical": 0,
+    "npm_audit_critical_high": 0,
+    "sbom": true,
+    "demo_dry_run": "passed",
+    "p0_traceability_orphans": 0
+  },
+  "notes": [
+    "Flake gate cleared after Navigation test hardening.",
+    "Security floor still unmet pending DAST (audit+SBOM green).",
+    "Accessibility floor unmet pending screen-reader/live contrast.",
+    "Human Gates 0–3 still required."
+  ]
+}

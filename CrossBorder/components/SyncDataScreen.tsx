@@ -30,6 +30,7 @@ import {
   clearStripeSyncCursors,
   computeStripeActualsFromRevenue,
 } from '../services/stripeSyncService';
+import { formatUserError } from '../services/asyncOperation';
 import { formatAmountInDisplay, getBaseCurrency, getAmountInBase } from '../services/currencyService';
 import { useDisplayCurrency } from '../contexts/DisplayCurrencyContext';
 import { Transaction } from '../types';
@@ -594,10 +595,21 @@ const SyncDataScreen: React.FC = () => {
         </div>
       </header>
 
-      {/* ── Error banner ─────────────────────────────────────────────────── */}
+      {/* ── Async status (REQ-075) ───────────────────────────────────────── */}
+      {isAnySync && (
+        <div role="status" aria-live="polite" style={{ padding: '12px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 'var(--r-md)', fontSize: 13, color: '#1d4ed8', fontWeight: 500 }}>
+          <strong>Working… · Stripe sync</strong>
+          <div style={{ marginTop: 4 }}>{syncStatusMsg || 'Syncing Stripe data…'}</div>
+        </div>
+      )}
       {error && (
-        <div style={{ padding: '12px 16px', background: 'var(--error-bg, #fef2f2)', border: '1px solid var(--error-border, #fecaca)', borderRadius: 'var(--r-md)', fontSize: 13, color: 'var(--error-text, #991b1b)', fontWeight: 500 }}>
-          {error}
+        <div role="alert" style={{ padding: '12px 16px', background: 'var(--error-bg, #fef2f2)', border: '1px solid var(--error-border, #fecaca)', borderRadius: 'var(--r-md)', fontSize: 13, color: 'var(--error-text, #991b1b)', fontWeight: 500 }}>
+          <strong>Something went wrong · Stripe sync</strong>
+          <div style={{ marginTop: 4 }}>{formatUserError(new Error(error), 'Stripe sync').message}</div>
+          <div style={{ marginTop: 6, fontWeight: 600 }}>Next: {formatUserError(new Error(error), 'Stripe sync').remediation}</div>
+          <button type="button" onClick={() => setError(null)} style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textDecoration: 'underline', background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+            Dismiss
+          </button>
         </div>
       )}
 

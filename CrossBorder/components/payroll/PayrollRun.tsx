@@ -9,6 +9,9 @@ import {
   computeFullSalary, FullSalaryResult, MONTHS,
 } from '../../services/payrollCalculator';
 import type { Transaction, PayrollRunSlip } from '../../types';
+import DesktopOnlyGate from '../DesktopOnlyGate';
+import AsyncStatusBanner from '../AsyncStatusBanner';
+import { useAsyncOperation } from '../../hooks/useAsyncOperation';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +59,7 @@ const PayrollRun: React.FC<Props> = ({
   const [isRunningPayroll, setIsRunningPayroll] = useState(false);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [slipPreview, setSlipPreview] = useState<{ emp: Employee; slip: FullSalaryResult } | null>(null);
+  const { state: asyncState, run: runAsync, reset: resetAsync } = useAsyncOperation<{ employeeCount: number }>();
 
   const activeEmployees = useMemo(() => employees.filter((e) => e.status === 'Active'), [employees]);
   const payrollEligible = activeEmployees;
@@ -124,108 +128,123 @@ const PayrollRun: React.FC<Props> = ({
       toast('error', `Payroll for ${selectedMonth} ${selectedYear} already processed`);
       return;
     }
-    setIsRunningPayroll(true);
-    await new Promise((r) => setTimeout(r, 1200));
 
-    const config = profile?.payroll || { pfEnabled: true, esiEnabled: false, ptState: 'Maharashtra', standardWorkingDays: 22 };
-    const runDate = new Date().toISOString().split('T')[0];
+    const outcome = await runAsync(
+      'Payroll batch',
+      async () => {
+        setIsRunningPayroll(true);
+        try {
+          await new Promise((r) => setTimeout(r, 400));
 
-    const employeeSlips: PayrollRunSlip[] = [];
-    let totalEmployerCost = 0;
+          const config = profile?.payroll || { pfEnabled: true, esiEnabled: false, ptState: 'Maharashtra', standardWorkingDays: 22 };
+          const runDate = new Date().toISOString().split('T')[0];
 
-    const monthIndex = MONTHS.indexOf(selectedMonth) + 1;
-    const payMonthStart = `${selectedYear}-${String(monthIndex).padStart(2, '0')}-01`;
-    const payMonthEnd = new Date(selectedYear, monthIndex, 0).toISOString().split('T')[0];
-    const allLeaveRequests = getLeaveRequests();
+          const employeeSlips: PayrollRunSlip[] = [];
+          let totalEmployerCost = 0;
 
-    for (const emp of payrollEligible) {
-      const leaveBalance = getLeaveBalance(emp.id, selectedYear);
-      const approvedInMonth = allLeaveRequests.filter(
-        (r) =>
-          r.employeeId === emp.id &&
-          r.status === 'Approved' &&
-          r.fromDate <= payMonthEnd &&
-          r.toDate >= payMonthStart,
-      );
-      const totalApprovedDays = approvedInMonth.reduce((s, r) => s + (r.days ?? 0), 0);
-      let lopDays = 0;
-      if (totalApprovedDays > 0) {
-        if (leaveBalance) {
-          const totalRemaining = Object.values(leaveBalance.balances).reduce((s, b) => s + b.remaining, 0);
-          lopDays = Math.max(0, totalApprovedDays - totalRemaining);
+          const monthIndex = MONTHS.indexOf(selectedMonth) + 1;
+          const payMonthStart = `${selectedYear}-${String(monthIndex).padStart(2, '0')}-01`;
+          const payMonthEnd = new Date(selectedYear, monthIndex, 0).toISOString().split('T')[0];
+          const allLeaveRequests = getLeaveRequests();
+
+          for (const emp of payrollEligible) {
+            const leaveBalance = getLeaveBalance(emp.id, selectedYear);
+            const approvedInMonth = allLeaveRequests.filter(
+              (r) =>
+                r.employeeId === emp.id &&
+                r.status === 'Approved' &&
+                r.fromDate <= payMonthEnd &&
+                r.toDate >= payMonthStart,
+            );
+            const totalApprovedDays = approvedInMonth.reduce((s, r) => s + (r.days ?? 0), 0);
+            let lopDays = 0;
+            if (totalApprovedDays > 0) {
+              if (leaveBalance) {
+                const totalRemaining = Object.values(leaveBalance.balances).reduce((s, b) => s + b.remaining, 0);
+                lopDays = Math.max(0, totalApprovedDays - totalRemaining);
+              }
+            }
+            const slip = computeFullSalary(emp, config, selectedMonth, selectedYear, lopDays);
+
+            employeeSlips.push({
+              employeeId: emp.id,
+              employeeName: emp.name,
+              basic: slip.basic,
+              hra: slip.hra,
+              allowance: slip.allowance,
+              grossEarnings: slip.grossEarnings,
+              epf: slip.epf,
+              esiEmployee: slip.esiEmployee,
+              pt: slip.pt,
+              tds: slip.tds,
+              totalDeductions: slip.totalDeductions,
+              netPay: slip.netPay,
+              epfEmployer: slip.epfEmployer,
+              epsEmployer: slip.epsEmployer,
+              esiEmployer: slip.esiEmployer,
+              lopDays: slip.lopDays,
+              paidDays: slip.paidDays,
+              workingDays: slip.workingDays,
+            });
+            totalEmployerCost += slip.totalEmployerCost;
+
+            const salaryTx: Transaction = {
+              id: `PAY-${emp.id}-${Date.now()}`,
+              date: runDate,
+              description: `Salary: ${emp.name} – ${selectedMonth} ${selectedYear}`,
+              amount: slip.netPay,
+              currency: 'INR',
+              source: 'IndianBank',
+              category: 'Payroll',
+              status: 'Completed',
+              type: 'Expense',
+            };
+            addTransaction(salaryTx);
+          }
+
+          const totals = employeeSlips.reduce(
+            (a, s) => ({ gross: a.gross + s.grossEarnings, stat: a.stat + s.totalDeductions, net: a.net + s.netPay }),
+            { gross: 0, stat: 0, net: 0 },
+          );
+
+          const statutoryTx: Transaction = {
+            id: `PAY-STAT-${Date.now()}`,
+            date: runDate,
+            description: `Statutory Dues (EPF/ESI/PT/TDS) – ${selectedMonth} ${selectedYear}`,
+            amount: totals.stat,
+            currency: 'INR',
+            source: 'IndianBank',
+            category: 'Statutory',
+            status: 'Completed',
+            type: 'Expense',
+          };
+          addTransaction(statutoryTx);
+
+          const payrollRun: PayrollRunType = {
+            id: `RUN-${uid()}`,
+            month: selectedMonth,
+            year: selectedYear,
+            runAt: new Date().toISOString(),
+            employeeCount: payrollEligible.length,
+            totalGross: totals.gross,
+            totalStatutory: totals.stat,
+            totalNet: totals.net,
+            totalEmployerCost,
+            employeeSlips,
+          };
+          onAddRun(payrollRun);
+          toast('success', `Payroll processed: ${payrollEligible.length} employees, ${fmt(totals.net)} disbursed`);
+          return { employeeCount: payrollEligible.length };
+        } finally {
+          setIsRunningPayroll(false);
         }
-      }
-      const slip = computeFullSalary(emp, config, selectedMonth, selectedYear, lopDays);
-
-      employeeSlips.push({
-        employeeId: emp.id,
-        employeeName: emp.name,
-        basic: slip.basic,
-        hra: slip.hra,
-        allowance: slip.allowance,
-        grossEarnings: slip.grossEarnings,
-        epf: slip.epf,
-        esiEmployee: slip.esiEmployee,
-        pt: slip.pt,
-        tds: slip.tds,
-        totalDeductions: slip.totalDeductions,
-        netPay: slip.netPay,
-        epfEmployer: slip.epfEmployer,
-        epsEmployer: slip.epsEmployer,
-        esiEmployer: slip.esiEmployer,
-        lopDays: slip.lopDays,
-        paidDays: slip.paidDays,
-        workingDays: slip.workingDays,
-      });
-      totalEmployerCost += slip.totalEmployerCost;
-
-      const salaryTx: Transaction = {
-        id: `PAY-${emp.id}-${Date.now()}`,
-        date: runDate,
-        description: `Salary: ${emp.name} – ${selectedMonth} ${selectedYear}`,
-        amount: slip.netPay,
-        currency: 'INR',
-        source: 'IndianBank',
-        category: 'Payroll',
-        status: 'Completed',
-        type: 'Expense',
-      };
-      addTransaction(salaryTx);
-    }
-
-    const totals = employeeSlips.reduce(
-      (a, s) => ({ gross: a.gross + s.grossEarnings, stat: a.stat + s.totalDeductions, net: a.net + s.netPay }),
-      { gross: 0, stat: 0, net: 0 },
+      },
+      (r) => `${r.employeeCount} employees · ${selectedMonth} ${selectedYear}`,
     );
 
-    const statutoryTx: Transaction = {
-      id: `PAY-STAT-${Date.now()}`,
-      date: runDate,
-      description: `Statutory Dues (EPF/ESI/PT/TDS) – ${selectedMonth} ${selectedYear}`,
-      amount: totals.stat,
-      currency: 'INR',
-      source: 'IndianBank',
-      category: 'Statutory',
-      status: 'Completed',
-      type: 'Expense',
-    };
-    addTransaction(statutoryTx);
-
-    const payrollRun: PayrollRunType = {
-      id: `RUN-${uid()}`,
-      month: selectedMonth,
-      year: selectedYear,
-      runAt: new Date().toISOString(),
-      employeeCount: payrollEligible.length,
-      totalGross: totals.gross,
-      totalStatutory: totals.stat,
-      totalNet: totals.net,
-      totalEmployerCost,
-      employeeSlips,
-    };
-    onAddRun(payrollRun);
-    setIsRunningPayroll(false);
-    toast('success', `Payroll processed: ${payrollEligible.length} employees, ${fmt(totals.net)} disbursed`);
+    if (outcome.phase === 'error') {
+      toast('error', outcome.message || 'Payroll failed');
+    }
   };
 
   // ── Download Slip ─────────────────────────────────────────────────────────
@@ -563,6 +582,8 @@ Computer-generated. Issued via CrossBorder Financial OS.
         </div>
       </div>
 
+      <AsyncStatusBanner state={asyncState} onDismiss={resetAsync} />
+
       {/* Run payroll hero */}
       <div className={`rounded-2xl border overflow-hidden ${selectedRunExists ? 'bg-emerald-900 border-emerald-800' : 'bg-slate-900 border-slate-700'}`}>
         <div className="p-6 sm:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
@@ -595,7 +616,8 @@ Computer-generated. Issued via CrossBorder Financial OS.
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <DesktopOnlyGate feature="Payroll run">
+          <div className="flex flex-wrap items-center gap-3 shrink-0 desktop-only-entry">
             {selectedRunExists ? (
               <button
                 onClick={handleDownloadAllSlips}
@@ -605,7 +627,7 @@ Computer-generated. Issued via CrossBorder Financial OS.
               </button>
             ) : (
               <button
-                onClick={handleRunPayroll}
+                onClick={() => void handleRunPayroll()}
                 disabled={isRunningPayroll || payrollEligible.length === 0}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg"
               >
@@ -617,6 +639,7 @@ Computer-generated. Issued via CrossBorder Financial OS.
               </button>
             )}
           </div>
+          </DesktopOnlyGate>
         </div>
       </div>
 

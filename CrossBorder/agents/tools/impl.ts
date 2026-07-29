@@ -24,7 +24,8 @@ import {
 import { runStripeSyncForAllAccounts, getLastSyncStatus } from '../../services/stripeSyncService';
 import { getFxRateForDate, getBaseCurrency } from '../../services/currencyService';
 import type { Transaction } from '../../types';
-import { getComplianceAdvice, analyzeInvoice } from '../../services/geminiService';
+import { getComplianceAdvice } from '../../services/geminiService';
+import { analyzeInvoiceWithFallback } from '../../services/aiFallback';
 
 /** Tax calculation: uses taxService (external API if configured, else partner remuneration or stub). */
 async function taxCalculate(params: Record<string, unknown>): Promise<unknown> {
@@ -81,7 +82,7 @@ const toolImpls: Record<ToolId, (params: Record<string, unknown>) => Promise<unk
   },
   analyze_invoice: async (p) => {
     const text = (p.invoiceText as string) || '';
-    return analyzeInvoice(text);
+    return analyzeInvoiceWithFallback(text);
   },
   add_transaction: async (p) => {
     const description = (p.description as string)?.trim();

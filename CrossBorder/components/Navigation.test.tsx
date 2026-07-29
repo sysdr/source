@@ -20,7 +20,10 @@ describe('Navigation', () => {
 
   it('highlights active tab', () => {
     render(<Navigation activeTab="revenue" setActiveTab={() => {}} />);
-    const revenueBtn = screen.getByRole('button', { name: /^Revenue$/i });
+    // Prefer text+closest over getByRole name regex — under parallel load
+    // accessible-name computation on the full nav tree has timed out (flake).
+    const revenueBtn = screen.getByText('Revenue').closest('button');
+    expect(revenueBtn).not.toBeNull();
     expect(revenueBtn).toHaveAttribute('aria-current', 'page');
   });
 

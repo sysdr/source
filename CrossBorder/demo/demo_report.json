@@ -1,0 +1,79 @@
+{
+  "artifact": "demo_report",
+  "version": "1.1.0",
+  "status": "dry_run_passed",
+  "script": "demo/scripts/p0-differentiation.md",
+  "environment": "demo/demo_environment.json",
+  "standup": {
+    "command": "npm run seed:db && npm run server & npm run demo:p0",
+    "verified_at": "2026-07-29T17:02:58.749Z",
+    "method": "api_engine_dry_run"
+  },
+  "flows": [
+    {
+      "id": "consolidated_dashboard",
+      "result": "passed",
+      "duration_ms": 5,
+      "steps": [
+        {
+          "step": "A1 consolidated entities",
+          "ok": true,
+          "detail": "Demo LLP + Demo Inc"
+        },
+        {
+          "step": "A2 compliance status API",
+          "ok": true
+        }
+      ],
+      "notes": "API/engine dry-run passed; viewport screenshots still manual"
+    },
+    {
+      "id": "oidar_export_classification",
+      "result": "passed",
+      "duration_ms": 3,
+      "steps": [
+        {
+          "step": "B1 export/domestic classes present",
+          "ok": true,
+          "detail": "Domestic,Export"
+        }
+      ],
+      "notes": "API/engine dry-run passed; viewport screenshots still manual"
+    },
+    {
+      "id": "filing_ready_export",
+      "result": "passed",
+      "duration_ms": 8,
+      "steps": [
+        {
+          "step": "C2 GSTR-1 schema validate",
+          "ok": true,
+          "detail": "valid"
+        },
+        {
+          "step": "C3 ack without ARN blocked",
+          "ok": true,
+          "detail": "status=400"
+        },
+        {
+          "step": "C3 ack with ARN accepted",
+          "ok": true
+        },
+        {
+          "step": "C1 derived Filed status",
+          "ok": true
+        }
+      ],
+      "notes": "API/engine dry-run passed; viewport screenshots still manual"
+    }
+  ],
+  "failure_paths_checked": [
+    {
+      "path": "filing_ack_without_arn",
+      "expected": "400",
+      "actual": "exercised",
+      "result": "passed"
+    }
+  ],
+  "updated_at": "2026-07-29T17:02:58.749Z"
+}
