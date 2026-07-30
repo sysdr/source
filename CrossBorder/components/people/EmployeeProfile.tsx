@@ -13,6 +13,7 @@ import {
   type EmployeeLifecycleEvent,
 } from '../../services/employeeLifecycle';
 import { getPayrollRuns } from '../../services/storageService';
+import { maskDisplayValue } from '../../services/displayPii';
 
 const fmt = (val?: number | null) =>
   (Number.isFinite(val) ? (val as number) : 0).toLocaleString('en-IN', {
@@ -42,6 +43,7 @@ interface Props {
 const EmployeeProfile: React.FC<Props> = ({ employee, onUpsert, onDelete, onBack, toast }) => {
   const [revisionCtc, setRevisionCtc] = useState(String(employee.ctc));
   const [revisionReason, setRevisionReason] = useState('');
+  const [revealSensitive, setRevealSensitive] = useState(false);
 
   const runEvent = (event: EmployeeLifecycleEvent) => {
     const result = applyLifecycleEvent(employee, event);
@@ -81,6 +83,18 @@ const EmployeeProfile: React.FC<Props> = ({ employee, onUpsert, onDelete, onBack
   };
 
   const docs = employee.documents || { pan: false, aadhaar: false, contract: false };
+  const panShown = revealSensitive
+    ? (employee.panNumber || 'Not collected')
+    : (employee.panNumber ? maskDisplayValue(employee.panNumber) : 'Not collected');
+  const bankAcctShown = revealSensitive
+    ? (employee.bankAccountNumber || '—')
+    : maskDisplayValue(employee.bankAccountNumber);
+  const ifscShown = revealSensitive
+    ? (employee.bankIFSC || '')
+    : (employee.bankIFSC ? maskDisplayValue(employee.bankIFSC) : '');
+  const uanShown = revealSensitive
+    ? (employee.uan || '—')
+    : maskDisplayValue(employee.uan);
 
   return (
     <div className="space-y-6">
@@ -115,12 +129,31 @@ const EmployeeProfile: React.FC<Props> = ({ employee, onUpsert, onDelete, onBack
 
       <section className="grid md:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-3">Identity & bank</h3>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="text-sm font-semibold text-slate-800">Identity & bank</h3>
+            <button
+              type="button"
+              onClick={() => setRevealSensitive((v) => !v)}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+            >
+              {revealSensitive ? 'Hide sensitive' : 'Reveal sensitive'}
+            </button>
+          </div>
           <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-slate-500">PAN</dt><dd className="font-medium">{employee.panNumber || 'Not collected'}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-slate-500">UAN</dt><dd className="font-medium">{employee.uan || '—'}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-500">PAN</dt><dd className="font-medium font-mono">{panShown}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-500">UAN</dt><dd className="font-medium font-mono">{uanShown}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-slate-500">Tax regime</dt><dd className="font-medium">{employee.taxRegime || '—'}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-slate-500">Bank</dt><dd className="font-medium text-right">{employee.bankName || '—'} {employee.bankIFSC ? `· ${employee.bankIFSC}` : ''}</dd></div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">Bank</dt>
+              <dd className="font-medium text-right">
+                {employee.bankName || '—'}
+                {ifscShown ? ` · ${ifscShown}` : ''}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">Account</dt>
+              <dd className="font-medium font-mono text-right">{bankAcctShown}</dd>
+            </div>
             <div className="flex justify-between gap-4"><dt className="text-slate-500">DOJ</dt><dd className="font-medium">{employee.doj}</dd></div>
           </dl>
         </div>

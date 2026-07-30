@@ -1,21 +1,22 @@
-{
-  "meta": { "agent_id": "scorecard", "cycle": 2, "slice": "people" },
-  "dimensions": {
-    "correctness": { "score": 88, "floor": 90, "below_floor": true, "note": "People unit tests green; attendance needs stronger suite; Cycle1 Stryker still pending" },
-    "domain_fidelity": { "score": 90, "floor": 85, "below_floor": false },
-    "experience": { "score": 82, "floor": 75, "below_floor": false },
-    "reliability": { "score": 88, "floor": 85, "below_floor": false },
-    "performance": { "score": 90, "floor": 80, "below_floor": false },
-    "security_privacy": { "score": 86, "floor": 95, "below_floor": true, "note": "Parked Cycle1 DAST; PII still plain in client for People profile" },
-    "accessibility": { "score": 84, "floor": 90, "below_floor": true, "note": "labels on attendance selects; SR audit not re-run" },
-    "operability": { "score": 85, "floor": 75, "below_floor": false }
-  },
-  "composite": 86,
-  "composite_capped_by_floor": 84,
-  "marginal_gain_vs_cycle1_capped": -2,
-  "top_leverage": [
-    "Attendance dedicated tests",
-    "Mask PII on profile",
-    "Resume Cycle1 DAST/SR"
-  ]
-}
+{
+  "meta": { "agent_id": "scorecard", "cycle": 2, "slice": "people", "pass": "portal-amplify" },
+  "dimensions": {
+    "correctness": { "score": 90, "floor": 90, "below_floor": false, "note": "Attendance + self-service + displayPii tests; Cycle1 Stryker still pending (parked)" },
+    "domain_fidelity": { "score": 91, "floor": 85, "below_floor": false },
+    "experience": { "score": 84, "floor": 75, "below_floor": false, "note": "Employee portal + editable profile/bank" },
+    "reliability": { "score": 90, "floor": 85, "below_floor": false, "note": "Leave + profile persist to SQLite" },
+    "performance": { "score": 90, "floor": 80, "below_floor": false },
+    "security_privacy": { "score": 90, "floor": 95, "below_floor": true, "note": "People UI mask done; Cycle1 DAST still parked — floor unmet" },
+    "accessibility": { "score": 84, "floor": 90, "below_floor": true, "note": "RW-P-005 open; Cycle1 SR audit parked" },
+    "operability": { "score": 86, "floor": 75, "below_floor": false }
+  },
+  "composite": 89,
+  "composite_capped_by_floor": 86,
+  "marginal_gain_vs_prior_people_pass": 2,
+  "top_leverage": [
+    "RW-P-003 DAST against staging",
+    "RW-P-005 employee portal a11y / SR",
+    "Stryker mutation on payroll slice"
+  ],
+  "gate3_blocker": "security_privacy and accessibility floors still capped by parked Cycle1 items"
+}

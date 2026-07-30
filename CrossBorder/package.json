@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:a11y": "vitest run services/a11y.smoke.test.tsx services/a11y.axe.test.tsx",
+    "test:a11y": "vitest run services/a11y.smoke.test.tsx services/a11y.axe.test.tsx services/a11y.employeePortal.test.tsx",
     "test:load": "tsx scripts/load-ledger-slo.ts",
     "test:flake": "node scripts/flake-hunter.mjs",
     "test:mutation": "stryker run",

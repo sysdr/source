@@ -195,6 +195,9 @@ function canWrite(req: http.IncomingMessage, url: string): boolean {
   if (isPublicWriteRoute(url)) return true;
   // Employee self-service profile updates (allowlisted fields only — enforced in handler)
   if (url === '/api/employees/self' && getRequestRole(req) === 'employee') return true;
+  // Leave requests: employees may create/update their own (enforced in handler)
+  if ((url === '/api/leave-requests' || /^\/api\/leave-requests\//.test(url))
+    && getRequestRole(req) === 'employee') return true;
   const role = getRequestRole(req);
   // Accountant / employee are always read-only (REQ-072 / REQ-073)
   if (role === 'accountant' || role === 'employee') return false;
@@ -2562,6 +2565,125 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       });
     } catch (err) {
       respond(req, res, 500, { error: (err as Error).message || 'Failed to send filing reminders' });
+    }
+    return;
+  }
+
+  // ── Leave requests (durable org_data; employee self-service) ───────────────
+  // GET  /api/leave-requests?orgId=
+  // POST /api/leave-requests { orgId, request }
+  // PUT  /api/leave-requests/:id { orgId, updates }
+  const LEAVE_KEY = 'suez_leave_requests';
+
+  if (url === '/api/leave-requests' && req.method === 'GET') {
+    const orgId = qs.orgId;
+    if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
+    const raw = getOrgData(orgId, LEAVE_KEY);
+    const list = Array.isArray(raw) ? raw : [];
+    const role = getRequestRole(req);
+    if (role === 'employee') {
+      const sessionEmpHeader = req.headers['x-suez-employee-id'];
+      const sessionEmployeeId = typeof sessionEmpHeader === 'string' ? sessionEmpHeader.trim() : '';
+      respond(req, res, 200, {
+        leaveRequests: list.filter((r) =>
+          r && typeof r === 'object' && (r as { employeeId?: string }).employeeId === sessionEmployeeId
+        ),
+      });
+      return;
+    }
+    respond(req, res, 200, { leaveRequests: list });
+    return;
+  }
+
+  if (url === '/api/leave-requests' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const request = body.request && typeof body.request === 'object'
+        ? (body.request as Record<string, unknown>)
+        : null;
+      if (!orgId || !request || typeof request.id !== 'string' || typeof request.employeeId !== 'string') {
+        respond(req, res, 400, { error: 'orgId and request{id,employeeId,...} required' });
+        return;
+      }
+      const role = getRequestRole(req);
+      if (role === 'employee') {
+        const sessionEmpHeader = req.headers['x-suez-employee-id'];
+        const sessionEmployeeId = typeof sessionEmpHeader === 'string' ? sessionEmpHeader.trim() : '';
+        if (!sessionEmployeeId || sessionEmployeeId !== request.employeeId) {
+          respond(req, res, 403, { error: 'Employees may only create their own leave requests' });
+          return;
+        }
+        request.status = 'Pending';
+      }
+      const existing = getOrgData(orgId, LEAVE_KEY);
+      const list = Array.isArray(existing) ? [...existing as Record<string, unknown>[]] : [];
+      const idx = list.findIndex((r) => r && (r as { id?: string }).id === request.id);
+      if (idx >= 0) list[idx] = { ...list[idx], ...request };
+      else list.unshift(request);
+      setOrgData(orgId, LEAVE_KEY, list);
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'leave_request_upsert', result: 'success', details: { id: request.id },
+      });
+      respond(req, res, 200, { ok: true, request });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  const leaveMatch = url.match(/^\/api\/leave-requests\/([^/]+)$/);
+  if (leaveMatch && req.method === 'PUT') {
+    try {
+      const leaveId = decodeURIComponent(leaveMatch[1]);
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const updates = body.updates && typeof body.updates === 'object'
+        ? (body.updates as Record<string, unknown>)
+        : null;
+      if (!orgId || !updates) {
+        respond(req, res, 400, { error: 'orgId and updates{} required' });
+        return;
+      }
+      const existing = getOrgData(orgId, LEAVE_KEY);
+      const list = Array.isArray(existing) ? [...existing as Record<string, unknown>[]] : [];
+      const idx = list.findIndex((r) => r && (r as { id?: string }).id === leaveId);
+      if (idx < 0) {
+        respond(req, res, 404, { error: 'Leave request not found' });
+        return;
+      }
+      const current = list[idx] as Record<string, unknown>;
+      const role = getRequestRole(req);
+      if (role === 'employee') {
+        const sessionEmpHeader = req.headers['x-suez-employee-id'];
+        const sessionEmployeeId = typeof sessionEmpHeader === 'string' ? sessionEmpHeader.trim() : '';
+        if (!sessionEmployeeId || current.employeeId !== sessionEmployeeId) {
+          respond(req, res, 403, { error: 'Employees may only update their own leave requests' });
+          return;
+        }
+        // Employees may only cancel pending requests
+        const nextStatus = updates.status;
+        if (nextStatus !== undefined && nextStatus !== 'Cancelled') {
+          respond(req, res, 403, { error: 'Employees may only cancel leave requests' });
+          return;
+        }
+        if (current.status !== 'Pending' && nextStatus === 'Cancelled') {
+          respond(req, res, 422, { error: 'Only pending leave can be cancelled' });
+          return;
+        }
+        list[idx] = { ...current, status: 'Cancelled' };
+      } else {
+        list[idx] = { ...current, ...updates, id: leaveId, employeeId: current.employeeId };
+      }
+      setOrgData(orgId, LEAVE_KEY, list);
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'leave_request_update', result: 'success', details: { id: leaveId },
+      });
+      respond(req, res, 200, { ok: true, request: list[idx] });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
     }
     return;
   }

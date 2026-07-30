@@ -1398,3 +1398,115 @@ describe('magic link / OTP auth API', () => {
     expect(body.employee.status).toBe('Active');
   });
 });
+
+describe('lightweight DAST / RBAC probes (RW-010 / RW-P-003)', () => {
+  it('denies employee write to admin employee upsert', async () => {
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const orgId = `dast-emp-${Date.now()}`;
+    upsertEmployee(orgId, {
+      id: 'E-DAST',
+      name: 'Dast User',
+      designation: 'Analyst',
+      ctc: 500000,
+      doj: '2024-01-01',
+      status: 'Active',
+      email: 'dast@acme.test',
+      documents: { pan: false, aadhaar: false, contract: true },
+    });
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/employees`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-DAST',
+      },
+      body: JSON.stringify({
+        orgId,
+        employee: {
+          id: 'E-HACK',
+          name: 'Hacker',
+          designation: 'X',
+          ctc: 1,
+          doj: '2024-01-01',
+          status: 'Active',
+          email: 'h@x.test',
+          documents: { pan: false, aadhaar: false, contract: false },
+        },
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('denies accountant write to org_data', async () => {
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const orgId = `dast-ca-${Date.now()}`;
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/org/${encodeURIComponent(orgId)}/suez_company_profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'accountant',
+      },
+      body: JSON.stringify({ value: { projectName: 'tamper' } }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('allows employee leave create for self and rejects other employeeId', async () => {
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const orgId = `dast-leave-${Date.now()}`;
+    const baseUrl = await startServer();
+
+    const denied = await fetch(`${baseUrl}/api/leave-requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-1',
+      },
+      body: JSON.stringify({
+        orgId,
+        request: {
+          id: 'LR-bad',
+          employeeId: 'E-2',
+          type: 'CL',
+          fromDate: '2026-08-01',
+          toDate: '2026-08-02',
+          days: 2,
+          reason: 'x',
+          status: 'Pending',
+          appliedAt: new Date().toISOString(),
+        },
+      }),
+    });
+    expect(denied.status).toBe(403);
+
+    const ok = await fetch(`${baseUrl}/api/leave-requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-1',
+      },
+      body: JSON.stringify({
+        orgId,
+        request: {
+          id: 'LR-ok',
+          employeeId: 'E-1',
+          type: 'CL',
+          fromDate: '2026-08-01',
+          toDate: '2026-08-01',
+          days: 1,
+          reason: 'Personal',
+          status: 'Approved',
+          appliedAt: new Date().toISOString(),
+        },
+      }),
+    });
+    expect(ok.status).toBe(200);
+    const body = await ok.json() as { ok: boolean; request: { status: string } };
+    expect(body.ok).toBe(true);
+    expect(body.request.status).toBe('Pending');
+  });
+});

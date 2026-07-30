@@ -1,38 +1,40 @@
-{
-  "project": "Project Suez — Cross-Border Financial OS",
-  "repository": "CrossBorder",
-  "cycle": 2,
-  "max_cycles": 6,
-  "cycle_started": "2026-07-30",
-  "cycle_objective": "Employee Management / People module — directory, profile, attendance, leave linkage",
-  "requested_scope": "Cycle 2 People module shipped behind ff_people_module",
-  "phases_in_scope": ["knowledge", "specify", "design", "build", "verify", "review"],
-  "phases_out_of_scope": ["deploy"],
-  "token_budget_remaining": 0.18,
-  "scorecard_history": [
-    { "cycle": 1, "pass": "baseline", "composite": 82, "composite_capped_by_floor": 72 },
-    { "cycle": 1, "pass": "harden", "composite": 88, "composite_capped_by_floor": 84, "marginal_gain": 6 },
-    { "cycle": 1, "pass": "gate3-prep", "composite": 90, "composite_capped_by_floor": 86, "marginal_gain": 2 },
-    { "cycle": 2, "pass": "people-module", "composite": 86, "composite_capped_by_floor": 84, "marginal_gain": -2 }
-  ],
-  "marginal_gain_last_cycle": -2,
-  "convergence_threshold": 3,
-  "re_entry_phase": 4,
-  "exit_reason": null,
-  "gate_status": {
-    "gate_0": "confirmed",
-    "gate_1": "confirmed",
-    "gate_2": "confirmed",
-    "gate_3": "not_reached"
-  },
-  "parked_cycle1_risks": ["RW-008", "RW-009", "RW-010", "F-013"],
-  "people_module": {
-    "flag": "ff_people_module",
-    "reqs": ["REQ-082", "REQ-083", "REQ-084", "REQ-085", "REQ-086", "REQ-087", "REQ-088", "REQ-089", "REQ-090"],
-    "tests_added": ["employeeLifecycle.test.ts", "featureFlags.test.ts", "attendanceStorage.test.ts", "Navigation People tab"]
-  },
-  "notes": [
-    "Cycle 2 People module implemented: nav, profile lifecycle, attendance, leave, feature flag.",
-    "Rework: RW-P-001 attendance tests stronger, RW-P-002 PII mask, RW-P-003 resume Gate3 floors."
-  ]
-}
+{
+  "project": "Project Suez — Cross-Border Financial OS",
+  "repository": "CrossBorder",
+  "cycle": 2,
+  "max_cycles": 6,
+  "cycle_started": "2026-07-30",
+  "cycle_objective": "Employee Management / People module — directory, profile, attendance, leave linkage + employee portal amplify",
+  "requested_scope": "Cycle 2 People module + portal RBAC / self-service / durable leave",
+  "phases_in_scope": ["knowledge", "specify", "design", "build", "verify", "review"],
+  "phases_out_of_scope": ["deploy"],
+  "token_budget_remaining": 0.12,
+  "scorecard_history": [
+    { "cycle": 1, "pass": "baseline", "composite": 82, "composite_capped_by_floor": 72 },
+    { "cycle": 1, "pass": "harden", "composite": 88, "composite_capped_by_floor": 84, "marginal_gain": 6 },
+    { "cycle": 1, "pass": "gate3-prep", "composite": 90, "composite_capped_by_floor": 86, "marginal_gain": 2 },
+    { "cycle": 2, "pass": "people-module", "composite": 86, "composite_capped_by_floor": 84, "marginal_gain": -2 },
+    { "cycle": 2, "pass": "portal-amplify", "composite": 89, "composite_capped_by_floor": 86, "marginal_gain": 2 }
+  ],
+  "marginal_gain_last_cycle": 2,
+  "convergence_threshold": 3,
+  "re_entry_phase": 4,
+  "exit_reason": null,
+  "gate_status": {
+    "gate_0": "confirmed",
+    "gate_1": "confirmed",
+    "gate_2": "confirmed",
+    "gate_3": "not_reached"
+  },
+  "parked_cycle1_risks": ["RW-008", "RW-009", "RW-010", "F-013"],
+  "people_module": {
+    "flag": "ff_people_module",
+    "reqs": ["REQ-082", "REQ-083", "REQ-084", "REQ-085", "REQ-086", "REQ-087", "REQ-088", "REQ-089", "REQ-090", "REQ-091", "REQ-092", "REQ-093", "REQ-094", "REQ-095"],
+    "tests_added": ["employeeLifecycle.test.ts", "featureFlags.test.ts", "attendanceStorage.test.ts", "displayPii.test.ts", "employeeSelfService.test.ts", "Navigation People tab"]
+  },
+  "notes": [
+    "Cycle 2 People module implemented: nav, profile lifecycle, attendance, leave, feature flag.",
+    "Amplify: employee portal, magic OTP, self-service profile+bank, IP invite URLs, durable leave API, People PII mask (RW-P-002).",
+    "RW-P-001 attendance tests strengthened; RW-P-003 Gate3 floors still parked."
+  ]
+}

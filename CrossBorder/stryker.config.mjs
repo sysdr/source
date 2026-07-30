@@ -14,6 +14,9 @@ export default {
     'services/retentionPolicy.ts',
     'services/consolidatedPosition.ts',
     'services/complianceStatusEngine.ts',
+    'services/employeeSelfService.ts',
+    'services/displayPii.ts',
+    'services/employeeLifecycle.ts',
   ],
   thresholds: {
     high: 80,

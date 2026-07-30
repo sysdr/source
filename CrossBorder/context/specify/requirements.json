@@ -211,6 +211,22 @@
       "rationale": "HR operator workflow continuity.", "priority": "P0", "source": "cycle-2", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
     {"id": "REQ-090", "class": "non_functional", "cycle": 2,
       "statement": "The People module shall ship behind feature flag ff_people_module defaulting to enabled for Cycle 2 demo, with clean off-path returning to Payroll-only HR entry.",
-      "rationale": "AGENTS.md feature flag rule.", "priority": "P0", "source": "AGENTS.md", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"}
+      "rationale": "AGENTS.md feature flag rule.", "priority": "P0", "source": "AGENTS.md", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
+
+    {"id": "REQ-091", "class": "functional", "cycle": 2,
+      "statement": "After authentication, employees shall access a dedicated employee portal (home, profile, pay & slips, leave) and shall not see admin ERP modules.",
+      "rationale": "Portal RBAC shipped during Cycle 2 amplify.", "priority": "P0", "source": "observed", "owning_module": "EmployeePortal", "verification_method": "e2e", "blast_radius": "reversible"},
+    {"id": "REQ-092", "class": "functional", "cycle": 2,
+      "statement": "Employees shall update allowlisted self-service profile fields (contact, identity numbers, bank, tax preferences) via PUT /api/employees/self without ability to change CTC, status, designation, email, or other HR-owned fields.",
+      "rationale": "Employee self-service profile.", "priority": "P0", "source": "cycle-2-amplify", "owning_module": "EmployeePortal", "verification_method": "integration", "blast_radius": "costly"},
+    {"id": "REQ-093", "class": "functional", "cycle": 2,
+      "statement": "Leave requests created or cancelled by employees shall persist in SQLite org_data and survive browser clear when the API is reachable.",
+      "rationale": "Close durability gap vs profile data.", "priority": "P0", "source": "cycle-2-amplify", "owning_module": "People", "verification_method": "integration", "blast_radius": "costly"},
+    {"id": "REQ-094", "class": "functional", "cycle": 2,
+      "statement": "Magic-link and OTP sign-in shall authenticate admin and employee identities using org SMTP; invite and magic email links shall use a non-localhost LAN/IP app base URL when available.",
+      "rationale": "Cross-device email openability.", "priority": "P0", "source": "cycle-2-amplify", "owning_module": "Auth", "verification_method": "integration", "blast_radius": "reversible"},
+    {"id": "REQ-095", "class": "security", "cycle": 2,
+      "statement": "People profile UI shall mask PAN, UAN, IFSC, and bank account by default with an explicit reveal control for operators.",
+      "rationale": "RW-P-002 / REQ-027 alignment.", "priority": "P0", "source": "rework-planner", "owning_module": "People", "verification_method": "unit", "blast_radius": "reversible"}
   ]
 }

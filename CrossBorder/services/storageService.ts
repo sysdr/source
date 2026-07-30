@@ -1,7 +1,8 @@
 import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord, OdiProfile, SmtpSettings, EmployeeInvite } from '../types';
 import { setIfChanged, remove as persistentRemove, clearHashes } from './persistentStorage';
 import { dbSet, dbDelete, dbClear } from './dbSync';
-import { api } from './apiClient';
+import { api, getAccessRole } from './apiClient';
+import { getAppSession } from './sessionAuth';
 
 /** Fire-and-forget API sync — never throws, never blocks the UI */
 export function syncToApi(fn: () => Promise<unknown>): void {
@@ -1140,8 +1141,11 @@ export const getLeaveRequests = (): LeaveRequest[] => {
 
 export const addLeaveRequest = (request: LeaveRequest): void => {
   const requests = getLeaveRequests();
-  updateActiveOrg((org) => ({ ...org, leaveRequests: [request, ...org.leaveRequests || []] }));
-  storage.set(StorageKeys.LEAVE_REQUESTS, [request, ...requests]);
+  const next = [request, ...requests.filter((r) => r.id !== request.id)];
+  updateActiveOrg((org) => ({ ...org, leaveRequests: next }));
+  storage.set(StorageKeys.LEAVE_REQUESTS, next);
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  syncToApi(() => api.upsertLeaveRequest(orgId, request));
 };
 
 export const updateLeaveRequest = (id: string, updates: Partial<LeaveRequest>): void => {
@@ -1151,8 +1155,28 @@ export const updateLeaveRequest = (id: string, updates: Partial<LeaveRequest>): 
     requests[idx] = { ...requests[idx], ...updates };
     updateActiveOrg((org) => ({ ...org, leaveRequests: requests }));
     storage.set(StorageKeys.LEAVE_REQUESTS, requests);
+    const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+    syncToApi(() => api.updateLeaveRequest(orgId, id, updates));
   }
 };
+
+/** Pull leave requests from SQLite into local org (employee sees own; admin sees all). */
+export async function syncLeaveRequestsFromServer(): Promise<number> {
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  const remote = await api.getLeaveRequests(orgId);
+  if (!remote || !Array.isArray(remote)) return 0;
+  const role = getAccessRole();
+  if (role === 'employee') {
+    const session = getAppSession();
+    const mine = remote.filter((r) => r.employeeId === session?.employeeId);
+    updateActiveOrg((org) => ({ ...org, leaveRequests: mine }));
+    storage.set(StorageKeys.LEAVE_REQUESTS, mine);
+    return mine.length;
+  }
+  updateActiveOrg((org) => ({ ...org, leaveRequests: remote }));
+  storage.set(StorageKeys.LEAVE_REQUESTS, remote);
+  return remote.length;
+}
 
 export const getLeaveBalance = (employeeId: string, year: number): LeaveBalance => {
   const policies = getLeavePolicies();
@@ -1194,6 +1218,8 @@ export const addAttendanceRecord = (record: AttendanceRecord): void => {
   }
   updateActiveOrg((org) => ({ ...org, attendance: records }));
   storage.set(StorageKeys.ATTENDANCE, records);
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  syncToApi(() => api.setOrgData(orgId, StorageKeys.ATTENDANCE, records));
 };
 
 export const bulkAddAttendance = (newRecords: AttendanceRecord[]): void => {
@@ -1205,6 +1231,8 @@ export const bulkAddAttendance = (newRecords: AttendanceRecord[]): void => {
   }
   updateActiveOrg((org) => ({ ...org, attendance: records }));
   storage.set(StorageKeys.ATTENDANCE, records);
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  syncToApi(() => api.setOrgData(orgId, StorageKeys.ATTENDANCE, records));
 };
 
 export const getPlatformRules = (): PlatformRules => {

@@ -10,7 +10,7 @@
  * Base URL: VITE_SERVER_URL, or same hostname as the page on port 3001 (LAN-friendly).
  */
 
-import type { Transaction, Employee, PayrollRun, Invoice, EmployeeInvite } from '../types';
+import type { Transaction, Employee, PayrollRun, Invoice, EmployeeInvite, LeaveRequest } from '../types';
 import { getServerBaseUrl } from './serverUrl';
 
 const BASE = getServerBaseUrl();
@@ -275,6 +275,36 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ value }),
     });
+    return result?.ok ?? false;
+  },
+
+  async getLeaveRequests(orgId: string): Promise<LeaveRequest[] | null> {
+    const result = await apiFetch<{ leaveRequests: LeaveRequest[] }>(
+      `/api/leave-requests${qs({ orgId })}`,
+    );
+    return result?.leaveRequests ?? null;
+  },
+
+  async upsertLeaveRequest(orgId: string, request: LeaveRequest): Promise<boolean> {
+    const result = await apiFetch<{ ok: boolean }>('/api/leave-requests', {
+      method: 'POST',
+      body: JSON.stringify({ orgId, request }),
+    });
+    return result?.ok ?? false;
+  },
+
+  async updateLeaveRequest(
+    orgId: string,
+    leaveId: string,
+    updates: Partial<LeaveRequest>,
+  ): Promise<boolean> {
+    const result = await apiFetch<{ ok: boolean }>(
+      `/api/leave-requests/${encodeURIComponent(leaveId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ orgId, updates }),
+      },
+    );
     return result?.ok ?? false;
   },
 

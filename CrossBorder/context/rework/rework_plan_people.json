@@ -1,33 +1,62 @@
-{
-  "meta": { "agent_id": "rework-planner", "cycle": 2 },
-  "re_entry_phase": 4,
-  "items": [
-    {
-      "id": "RW-P-001",
-      "title": "Add attendance unit/integration tests citing REQ-086",
-      "re_entry_phase": 4,
-      "priority": "P1",
-      "owner": "test-engineer"
-    },
-    {
-      "id": "RW-P-002",
-      "title": "Mask PAN/bank on People profile unless reveal",
-      "re_entry_phase": 3,
-      "priority": "P0",
-      "owner": "frontend-engineer",
-      "reqs": ["REQ-027"]
-    },
-    {
-      "id": "RW-P-003",
-      "title": "Resume parked Cycle1 Gate3 floors (DAST, SR, Stryker)",
-      "re_entry_phase": 4,
-      "priority": "P0",
-      "owner": "orchestrator"
-    }
-  ],
-  "ledger": {
-    "cycle": 2,
-    "changed": ["People nav", "profile lifecycle", "attendance UI", "feature flag", "factory artifacts"],
-    "bought": "First-class Employee Management module; REQ-082–090 spine"
-  }
-}
+{
+  "meta": { "agent_id": "rework-planner", "cycle": 2, "pass": "portal-amplify" },
+  "re_entry_phase": 4,
+  "items": [
+    {
+      "id": "RW-P-001",
+      "title": "Add attendance unit/integration tests citing REQ-086",
+      "status": "done",
+      "re_entry_phase": 4,
+      "priority": "P1",
+      "owner": "test-engineer"
+    },
+    {
+      "id": "RW-P-002",
+      "title": "Mask PAN/bank on People profile unless reveal",
+      "status": "done",
+      "re_entry_phase": 3,
+      "priority": "P0",
+      "owner": "frontend-engineer",
+      "reqs": ["REQ-027", "REQ-095"]
+    },
+    {
+      "id": "RW-P-003",
+      "title": "Resume parked Cycle1 Gate3 floors (DAST, SR, Stryker)",
+      "status": "parked",
+      "re_entry_phase": 4,
+      "priority": "P0",
+      "owner": "orchestrator",
+      "note": "Blocks Gate 3; not in portal amplify scope"
+    },
+    {
+      "id": "RW-P-004",
+      "title": "Persist employee leave requests to SQLite",
+      "status": "done",
+      "re_entry_phase": 3,
+      "priority": "P0",
+      "owner": "backend-engineer",
+      "reqs": ["REQ-093"]
+    },
+    {
+      "id": "RW-P-005",
+      "title": "Accessibility screen-reader pass on employee portal",
+      "status": "open",
+      "re_entry_phase": 4,
+      "priority": "P1",
+      "owner": "accessibility-engineer"
+    }
+  ],
+  "ledger": {
+    "cycle": 2,
+    "pass": "portal-amplify",
+    "changed": [
+      "People PII mask + reveal",
+      "Leave API + client sync",
+      "Attendance sync to org_data",
+      "REQ-091..095",
+      "Self-service profile/bank (prior)",
+      "Magic auth + IP invite URLs (prior)"
+    ],
+    "bought": "Employee durability for profile+leave; privacy on People profile; portal RBAC spine"
+  }
+}

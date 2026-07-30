@@ -14,6 +14,7 @@ import {
   getPayrollRuns,
   StorageKeys,
   setEmployeeLocalOnly,
+  syncLeaveRequestsFromServer,
   updateEmployeeSelfProfile,
   updateLeaveRequest,
 } from '../../services/storageService';
@@ -422,6 +423,10 @@ export const EmployeeLeaveSelf: React.FC = () => {
   const [form, setForm] = useState({ type: 'CL', fromDate: '', toDate: '', reason: '' });
   const [, setTick] = useState(0);
   const refresh = () => setTick((t) => t + 1);
+
+  useEffect(() => {
+    void syncLeaveRequestsFromServer().then(() => refresh());
+  }, []);
 
   if (!emp) return <EmptyEmployee />;
 
