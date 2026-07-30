@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { setAccessRole, setAccountantToken } from '../services/apiClient';
+import { getServerBaseUrl } from '../services/serverUrl';
 
-const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
-  ?? 'http://localhost:3001';
+const BASE = getServerBaseUrl();
 
 interface Props {
   token: string;

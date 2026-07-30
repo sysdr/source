@@ -1,0 +1,10 @@
+﻿started=2026-07-30T11:40:31+05:30
+restart=PASS
+post_restart_hooks_config={}
+post_restart_hook_log_lines=21
+pre_fix_hook_log_had_block_destructive=YES
+post_fix_live_hook_procs=0
+post_fix_shell_burst_hook_procs=0
+mintty_count=0
+RESULT=PASS
+notes=Cursor restarted; Claude PreToolUse .sh hooks disabled; Shell tool use no longer spawns block-destructive powershell windows.

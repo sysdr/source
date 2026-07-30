@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "agent_id": "edge-case-enumerator",
+    "cycle": 2,
+    "artifact_version": "2.0.0"
+  },
+  "questions": [
+    {
+      "id": "OQ-E-001",
+      "scenario": "Employee exits mid-payroll month after slips drafted",
+      "severity": "high",
+      "likelihood_x_blast": 0.72,
+      "proposed_resolution": "Status Exited removes from next run; current month run if already posted stays immutable",
+      "blocking": false
+    },
+    {
+      "id": "OQ-E-002",
+      "scenario": "Duplicate PAN across two Active employees",
+      "severity": "high",
+      "likelihood_x_blast": 0.65,
+      "proposed_resolution": "Warn on save; block payroll for both until resolved",
+      "blocking": false
+    },
+    {
+      "id": "OQ-E-003",
+      "scenario": "Invite accepted creates employee while manual add already used same email",
+      "severity": "medium",
+      "likelihood_x_blast": 0.55,
+      "proposed_resolution": "Merge onto existing id if email match; else reject invite accept",
+      "blocking": false
+    },
+    {
+      "id": "OQ-E-004",
+      "scenario": "Attendance marked Present on Approved leave day",
+      "severity": "medium",
+      "likelihood_x_blast": 0.5,
+      "proposed_resolution": "Attendance Leave wins; Present overwrite requires confirm",
+      "blocking": false
+    },
+    {
+      "id": "OQ-E-005",
+      "scenario": "Hard delete employee with historical payroll slips",
+      "severity": "critical",
+      "likelihood_x_blast": 0.8,
+      "proposed_resolution": "Reject hard delete; force Exited then Archived",
+      "blocking": true,
+      "proposed_default": "reject_hard_delete_if_payroll_history"
+    }
+  ]
+}

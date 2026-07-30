@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "agent_id": "domain-modeler",
+    "artifact_key": "knowledge/domain_model",
+    "artifact_version": "2.0.0",
+    "phase": "knowledge",
+    "cycle": 2,
+    "focus": "Employee / People"
+  },
+  "entities": {
+    "Employee": {
+      "system_of_record": "SQLite employees table + org sync",
+      "attributes": {
+        "id": { "type": "string", "null": "never" },
+        "name": { "type": "string", "null": "never" },
+        "status": {
+          "type": "enum",
+          "values": ["Onboarding", "Active", "Inactive", "Notice", "Exited", "Archived"],
+          "null": "never"
+        },
+        "ctc": { "type": "number", "unit": "INR/year", "null": "never", "precision": "integer_rupees" },
+        "panNumber": { "type": "string", "null_means": "not-yet-collected", "pii": true },
+        "aadhaarNumber": { "type": "string", "null_means": "not-yet-collected", "pii": true },
+        "bankAccountNumber": { "type": "string", "null_means": "not-yet-collected", "pii": true },
+        "taxRegime": { "type": "enum", "values": ["new", "old"], "null_means": "not-yet-collected" },
+        "salaryRevisions": { "type": "SalaryRevision[]", "null_means": "zero_history" }
+      },
+      "invariants": [
+        "INV-E-001: id unique per org",
+        "INV-E-002: ctc >= 0",
+        "INV-E-003: only status Active is payroll-eligible by default",
+        "INV-E-004: Notice remains payroll-eligible until exit date",
+        "INV-E-005: salary revision newCTC >= 0 and effectiveDate ISO date"
+      ],
+      "sharp_edges": {
+        "currency": "CTC stored INR; no multi-currency employee pay in MVP",
+        "timezone": "doj/attendance dates are calendar dates (IST assumed, no TZ stored)",
+        "null_semantics": "missing PAN/bank = not-yet-collected, blocks payroll row not directory save",
+        "soft_deletes": "prefer status Exited/Archived over hard delete; hard delete allowed for Onboarding-only mistakes",
+        "concurrency": "last-write-wins via upsertEmployee; no optimistic locking"
+      }
+    },
+    "AttendanceRecord": {
+      "system_of_record": "org.attendance / suez_attendance",
+      "attributes": {
+        "employeeId": { "type": "string" },
+        "date": { "type": "ISO-date" },
+        "status": { "type": "enum", "values": ["Present", "Absent", "Half-day", "WFH", "Holiday", "Leave"] }
+      },
+      "invariants": ["INV-A-001: unique (employeeId, date) per org"]
+    },
+    "LeaveRequest": {
+      "system_of_record": "org.leaveRequests",
+      "invariants": ["INV-L-001: toDate >= fromDate", "INV-L-002: Approved leave may mark attendance Leave"]
+    },
+    "SalaryRevision": {
+      "embedded_in": "Employee.salaryRevisions",
+      "invariants": ["INV-R-001: append-only history preferred; edits create new revision"]
+    }
+  },
+  "module_boundary": {
+    "People": ["Employee master", "profile", "attendance", "leave UX", "invites consumption"],
+    "Payroll": ["batch run", "slips", "statutory exports", "declarations", "consumes Active/Notice employees"]
+  }
+}

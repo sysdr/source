@@ -168,9 +168,10 @@ const PayrollEngine: React.FC = () => {
       <header className="mb-8">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Payroll & HR</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Payroll</h1>
             <p className="text-sm text-slate-500 mt-1 max-w-xl">
-              {profile?.payroll.pfEnabled ? 'EPF registered' : 'PF exempt'} · ESI {profile?.payroll.esiEnabled ? 'enabled' : 'exempt'} · {profile?.payroll.ptState ?? '—'}
+              Batch runs, slips, and statutory filings. Manage headcount in People.
+              {profile?.payroll.pfEnabled ? ' · EPF registered' : ' · PF exempt'} · ESI {profile?.payroll.esiEnabled ? 'enabled' : 'exempt'} · {profile?.payroll.ptState ?? '—'}
               <span className="text-emerald-600 font-medium ml-1">· {activeEmployees.length} active</span>
               <span className="text-slate-400"> / {employees.length} total</span>
             </p>

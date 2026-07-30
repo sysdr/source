@@ -2,7 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 // Initialize the Google GenAI client using the API key from environment variables.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({
+  apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || '',
+});
 
 /** Orchestrator routing: which agents to use and optional tool(s) to call. */
 export interface OrchestratorRouteResult {

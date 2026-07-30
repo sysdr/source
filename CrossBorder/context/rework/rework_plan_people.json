@@ -1,0 +1,33 @@
+{
+  "meta": { "agent_id": "rework-planner", "cycle": 2 },
+  "re_entry_phase": 4,
+  "items": [
+    {
+      "id": "RW-P-001",
+      "title": "Add attendance unit/integration tests citing REQ-086",
+      "re_entry_phase": 4,
+      "priority": "P1",
+      "owner": "test-engineer"
+    },
+    {
+      "id": "RW-P-002",
+      "title": "Mask PAN/bank on People profile unless reveal",
+      "re_entry_phase": 3,
+      "priority": "P0",
+      "owner": "frontend-engineer",
+      "reqs": ["REQ-027"]
+    },
+    {
+      "id": "RW-P-003",
+      "title": "Resume parked Cycle1 Gate3 floors (DAST, SR, Stryker)",
+      "re_entry_phase": 4,
+      "priority": "P0",
+      "owner": "orchestrator"
+    }
+  ],
+  "ledger": {
+    "cycle": 2,
+    "changed": ["People nav", "profile lifecycle", "attendance UI", "feature flag", "factory artifacts"],
+    "bought": "First-class Employee Management module; REQ-082–090 spine"
+  }
+}

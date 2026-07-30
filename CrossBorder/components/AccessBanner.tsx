@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { getAccessRole, getOrCreateWriterSessionId } from '../services/apiClient';
 import { StorageKeys } from '../services/storageService';
+import { getServerBaseUrl } from '../services/serverUrl';
 
-const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
-  ?? 'http://localhost:3001';
+const BASE = getServerBaseUrl();
 
 /**
  * Visible single-writer + read-only collaborator banner (REQ-070 / REQ-073).
@@ -57,6 +57,14 @@ const AccessBanner: React.FC = () => {
     return (
       <div className="px-4 py-2 text-xs font-semibold text-center" style={{ background: '#e0f2fe', color: '#0369a1' }}>
         Accountant read-only session — exports allowed; create/edit blocked (72-hour invite).
+      </div>
+    );
+  }
+
+  if (role === 'employee') {
+    return (
+      <div className="px-4 py-2 text-xs font-semibold text-center" style={{ background: '#eef2ff', color: '#3730a3' }}>
+        Employee portal — you can view your profile, pay slips, and leave only.
       </div>
     );
   }

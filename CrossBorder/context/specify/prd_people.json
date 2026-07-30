@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "agent_id": "product-strategist",
+    "artifact_key": "prd_people",
+    "artifact_version": "1.0.0",
+    "cycle": 2,
+    "phase": "specify"
+  },
+  "product_slice": "People — Employee Management",
+  "mvp_p0": [
+    {
+      "id": "FEAT-P-001",
+      "title": "People navigation + directory",
+      "priority": "P0",
+      "reqs": ["REQ-082", "REQ-083"],
+      "evidence_grade": "E4",
+      "user_flow": ["Open People", "Search/filter employees", "Add or edit employee", "See readiness gaps"]
+    },
+    {
+      "id": "FEAT-P-002",
+      "title": "Employee profile + lifecycle",
+      "priority": "P0",
+      "reqs": ["REQ-084", "REQ-085", "REQ-087", "REQ-088"],
+      "evidence_grade": "E4"
+    },
+    {
+      "id": "FEAT-P-003",
+      "title": "Attendance calendar",
+      "priority": "P0",
+      "reqs": ["REQ-086"],
+      "evidence_grade": "E4"
+    },
+    {
+      "id": "FEAT-P-004",
+      "title": "Leave from People",
+      "priority": "P0",
+      "reqs": ["REQ-089"],
+      "evidence_grade": "E4"
+    }
+  ],
+  "out_of_scope": ["org_chart", "employee_self_service_login", "payroll_batch_redesign"],
+  "nfrs": ["REQ-090", "WCAG AA for People screens"],
+  "rice_p0": { "reach": 8, "impact": 2, "confidence": 0.8, "effort": 2, "score": 6.4 }
+}

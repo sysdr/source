@@ -1,0 +1,6 @@
+{
+  "meta": { "gate": 2, "cycle": 2, "confirmed_at": "2026-07-30T08:20:00Z", "accepted": true },
+  "adr": "ADR-002",
+  "design": "context/design/people_system_design.json",
+  "confirmation_source": "User approved Cycle 2 plan including architecture for People module"
+}

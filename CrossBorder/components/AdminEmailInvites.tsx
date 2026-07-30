@@ -9,6 +9,7 @@ import {
   syncEmployeesFromServer,
 } from '../services/storageService';
 import type { EmployeeInvite, SmtpSettings } from '../types';
+import { getAppPublicBaseUrl } from '../services/serverUrl';
 
 const fieldClass =
   'w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs focus:border-indigo-400';
@@ -124,7 +125,7 @@ const AdminEmailInvites: React.FC = () => {
       ctc: inviteForm.ctc ? Number(inviteForm.ctc) : undefined,
       doj: inviteForm.doj || undefined,
       employeeType: inviteForm.employeeType,
-      appBaseUrl: window.location.origin,
+      appBaseUrl: getAppPublicBaseUrl(),
     });
     setSendingInvite(false);
     if (!result.ok) {
@@ -181,7 +182,9 @@ const AdminEmailInvites: React.FC = () => {
             SMTP email settings
           </h3>
           <p className="text-xs text-slate-500 font-medium">
-            Used to send employee invites and test messages. Requires the API server (<code className="text-[10px]">npm run server</code>).
+            Used for employee invites, test messages, and magic-link / OTP sign-in.
+            Admin login is allowed for the <strong>From email</strong> (and username / reply-to if they are email addresses).
+            Requires the API server (<code className="text-[10px]">npm run server</code>).
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">

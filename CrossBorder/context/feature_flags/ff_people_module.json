@@ -1,0 +1,7 @@
+{
+  "id": "ff_people_module",
+  "description": "First-class People / Employee Management module",
+  "default": true,
+  "rollout": { "steps": [1, 10, 50, 100], "kill_switch": true },
+  "requirements": ["REQ-090"]
+}

@@ -569,6 +569,49 @@ export const updateEmployee = (id: string, updates: Partial<Employee>): void => 
   }
 };
 
+/**
+ * Employee self-service profile update: local apply + allowlisted API sync.
+ * Does not use the admin upsertEmployees path (blocked for employee role).
+ */
+export function setEmployeeLocalOnly(employee: Employee): void {
+  const all = getAllEmployeesIncludingArchived();
+  const index = all.findIndex((e) => e.id === employee.id);
+  if (index === -1) all.push(employee);
+  else all[index] = { ...all[index], ...employee };
+  updateActiveOrg((org) => ({ ...org, employees: all }));
+  storage.set(StorageKeys.EMPLOYEES, all);
+}
+
+export async function updateEmployeeSelfProfile(
+  id: string,
+  updates: Partial<Employee>,
+): Promise<{ ok: boolean; error?: string }> {
+  const all = getAllEmployeesIncludingArchived();
+  const index = all.findIndex((e) => e.id === id);
+  if (index === -1) return { ok: false, error: 'Employee not found' };
+
+  const { pickEmployeeSelfPatch, applyDocumentFlagsFromPatch } = await import('./employeeSelfService');
+  const patch = pickEmployeeSelfPatch(updates as Record<string, unknown>);
+  if (Object.keys(patch).length === 0) return { ok: false, error: 'No editable fields' };
+
+  const existing = all[index];
+  const documents = applyDocumentFlagsFromPatch(existing, patch);
+  const merged = { ...existing, ...patch, documents };
+  setEmployeeLocalOnly(merged);
+
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  try {
+    const result = await api.updateEmployeeSelf(orgId, id, patch);
+    if (!result.ok) return { ok: false, error: result.error || 'Save failed' };
+    if (result.employee) {
+      setEmployeeLocalOnly({ ...merged, ...result.employee, documents });
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 const DEFAULT_SMTP: SmtpSettings = {
   host: '',
   port: 587,

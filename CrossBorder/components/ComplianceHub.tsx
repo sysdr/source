@@ -23,6 +23,7 @@ import {
 } from '../services/filings';
 import AsyncStatusBanner from './AsyncStatusBanner';
 import { IDLE_ASYNC_STATE, type AsyncOperationState } from '../services/asyncOperation';
+import { getAppPublicBaseUrl, getServerBaseUrl } from '../services/serverUrl';
 import { useViewport } from '../hooks/useViewport';
 
 const FY_OPTIONS = ['2024-25', '2025-26', '2026-27'];
@@ -316,8 +317,7 @@ const ComplianceHub: React.FC = () => {
     }
     const profile = getCompanyProfile();
     const orgId = localStorage.getItem('suez_active_org_id') ?? 'default';
-    const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
-      ?? 'http://localhost:3001';
+    const BASE = getServerBaseUrl();
     try {
       setInviteBusy(true);
       const res = await fetch(`${BASE}/api/accountant-invites`, {
@@ -327,7 +327,7 @@ const ComplianceHub: React.FC = () => {
           orgId,
           email: inviteEmail.trim(),
           orgName: profile?.projectName,
-          appBase: window.location.origin,
+          appBase: getAppPublicBaseUrl(),
         }),
       });
       const json = await res.json() as { ok?: boolean; inviteUrl?: string; error?: string; invite?: { expiresAt: string } };

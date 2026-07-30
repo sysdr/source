@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "agent_id": "domain-expert",
+    "artifact_key": "knowledge/domain_summary",
+    "artifact_version": "2.0.0",
+    "phase": "knowledge",
+    "cycle": 2,
+    "supersedes": "1.x cycle1 summary for People slice"
+  },
+  "people_module": {
+    "purpose": "System of record for employee master data, lifecycle, attendance, and leave UX for India-side HR operators and founders.",
+    "boundary_with_payroll": {
+      "People_owns": ["Employee CRUD", "profile", "status lifecycle", "attendance", "leave requests/policies UI", "salary revision history"],
+      "Payroll_owns": ["batch computation", "payslips", "statutory filings 24Q/ECR", "investment declarations for TDS"],
+      "shared": ["Employee id", "CTC", "taxRegime", "status for eligibility"]
+    },
+    "table_stakes": ["directory search/filter", "edit employee", "leave approve/reject"],
+    "differentiators": ["cross-linked to India statutory payroll readiness (PAN/bank gaps visible)", "attendance feeding LOP"],
+    "data_sensitivity": ["PAN", "Aadhaar", "bank", "CTC"],
+    "observed_gaps": {
+      "epistemic_status": "observed",
+      "from_data_profile": ["7 missing PAN", "7 incomplete bank", "0 attendance records", "0 leave requests in DB"]
+    }
+  },
+  "gate0_ready": {
+    "p0_decision_table_coverage": 1.0,
+    "employee_state_machine_total": true,
+    "assumed_ratio_p0": 0.08,
+    "blocking_open_questions": ["OQ-E-005"]
+  },
+  "value_hypotheses": [
+    {
+      "id": "VH-E-001",
+      "who": "Company admin/HR operator",
+      "pain": "Employee master buried in payroll tabs; no attendance UI",
+      "evidence_grade": "E4",
+      "evidence": "types+storage for attendance unused; directory only under Payroll"
+    }
+  ]
+}

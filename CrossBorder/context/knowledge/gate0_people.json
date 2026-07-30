@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "agent_id": "orchestrator",
+    "gate": 0,
+    "cycle": 2,
+    "presented_at": "2026-07-30T08:00:00Z",
+    "status": "confirmed_via_plan_approval"
+  },
+  "summary_for_human": {
+    "domain": "Employee lifecycle + attendance + leave as People module; Payroll consumes eligibility",
+    "top_open_questions": [
+      "OQ-E-005: reject hard delete when payroll history exists (proposed default)",
+      "OQ-E-001: exited mid-month leaves posted run immutable",
+      "OQ-E-002: duplicate PAN warn + block payroll"
+    ],
+    "data_surprises": [
+      "47 employees; 46 Active; 7 missing PAN; 0 attendance/leave in DB"
+    ],
+    "value": "VH-E-001 E4 — attendance typed but unused; HR secondary persona in brief",
+    "resolutions_applied": {
+      "OQ-E-005": "reject_hard_delete_if_payroll_history",
+      "employee_edit_exclusion": "removed from brief — edit already exists"
+    }
+  },
+  "human_confirmation": {
+    "source": "User approved Cycle 2 Employee Factory plan 2026-07-30",
+    "domain_model": "accepted",
+    "proposed_resolutions": "accepted as defaults"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "agent_id": "data-profiler",
+    "artifact_key": "knowledge/data_profile",
+    "artifact_version": "2.0.0",
+    "phase": "knowledge",
+    "cycle": 2,
+    "generated_at": "2026-07-30T07:55:00Z",
+    "epistemic_status": "observed",
+    "provenance": { "source": "data/suez.db", "script": "scripts/profile-employees.mjs" }
+  },
+  "tables_present": [
+    "employees", "employee_invites", "payroll_runs", "org_data", "kv_store"
+  ],
+  "employees": {
+    "row_count": 47,
+    "status_distribution": { "Active": 46, "Onboarding": 1 },
+    "employee_type_distribution": { "unknown_or_unset": 43, "Full-time": 4 },
+    "department_distribution": { "unset": 44, "Engineering": 3 },
+    "field_gaps": {
+      "pan_missing": 7,
+      "bank_incomplete": 7,
+      "tax_regime_missing": 6
+    },
+    "salary_revisions_populated": 0,
+    "notes": [
+      "Most employees lack department and employeeType — UI defaults not backfilled.",
+      "No Exited/Notice/Inactive/Archived rows in sample DB.",
+      "Attendance and leave arrays empty in org payload (0 records)."
+    ]
+  },
+  "leave_requests": { "count_in_orgs": 0 },
+  "attendance": { "count_in_orgs": 0 },
+  "invariant_violations_observed": [
+    {
+      "claim": "Active employees should have PAN for TDS payroll",
+      "violations": 7,
+      "epistemic_status": "observed"
+    },
+    {
+      "claim": "Active employees should have bank + IFSC for payout",
+      "violations": 7,
+      "epistemic_status": "observed"
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getActiveOrgId } from '../services/storageService';
 import type { ReconItemStatus, ReconPaneSummary, ThreeWayReconciliationReport } from '../services/threeWayReconciliation';
+import { getServerBaseUrl } from '../services/serverUrl';
 
-const API_BASE = (import.meta as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE
-  || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:3001` : 'http://localhost:3001');
+const API_BASE = getServerBaseUrl();
 
 type PaneKey = 'stripeMercury' | 'ledgerBank' | 'gstr2bPurchases';
 

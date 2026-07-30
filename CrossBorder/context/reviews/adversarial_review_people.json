@@ -1,0 +1,7 @@
+{
+  "meta": { "agent_id": "adversarial-reviewer", "cycle": 2 },
+  "abuse": ["bulk attendance overwrite without audit actor"],
+  "confused_user": ["double-open People and Payroll directory"],
+  "silent_failure": ["attendance when no active org may write only localStorage"],
+  "headline_risk": "Wrong attendance causing incorrect LOP if auto-wired later"
+}

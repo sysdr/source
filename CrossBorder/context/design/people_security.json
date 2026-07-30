@@ -1,0 +1,10 @@
+{
+  "meta": { "agent_id": "security-architect", "cycle": 2 },
+  "people_rbac": {
+    "owner": ["directory", "profile", "attendance", "leave", "status_transition", "salary_revision"],
+    "accountant": ["directory_read", "profile_read_masked_pii"],
+    "employee": ["own_profile_read_future"]
+  },
+  "pii_fields": ["panNumber", "aadhaarNumber", "bankAccountNumber"],
+  "notes": "MVP remains single-operator; role checks reuse getAccessRole where present"
+}

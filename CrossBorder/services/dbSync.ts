@@ -7,8 +7,9 @@
  * - dbClear()         – delete all keys (used on full app reset)
  */
 
-const DB_API_BASE = (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
-  ?? 'http://localhost:3001';
+import { getServerBaseUrl } from './serverUrl';
+
+const DB_API_BASE = getServerBaseUrl();
 
 const HYDRATED_FLAG = 'suez_db_hydrated_at';
 

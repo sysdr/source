@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getModulePermissions } from '../services/storageService';
+import { isPeopleModuleEnabled } from '../services/featureFlags';
+import type { AppUserRole } from '../services/sessionAuth';
 
 interface NavProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   orgName?: string | null;
+  portalRole?: AppUserRole;
+  userLabel?: string | null;
+  onSignOut?: () => void;
 }
 
 const MODULE_PERMISSION_MAP: Record<string, string> = {
@@ -48,6 +53,11 @@ const ICONS: Record<string, string | string[]> = {
   transfer:   ['M11 4l3 3-3 3', 'M2 7h12', 'M5 12l-3 3 3 3'],
   taxation:   ['M8 2l1.8 3.6L14 6.2l-3 2.9.7 4.1L8 11l-3.7 2.2.7-4.1-3-2.9 4.2-.6z'],
   payroll:    ['M2 6h12', 'M2 10h12', 'M5 2v12', 'M9 2v12'],
+  people:     ['M8 2a3 3 0 100 6 3 3 0 000-6z', 'M2 14c0-3 2.7-5 6-5s6 2 6 5', 'M12 9v4', 'M10 11h4'],
+  'emp-home': ['M2 2h5v5H2z', 'M9 2h5v5H9z', 'M2 9h5v5H2z', 'M9 9h5v5H9z'],
+  'emp-profile': ['M8 2a3 3 0 100 6 3 3 0 000-6z', 'M2 14c0-3 2.7-5 6-5s6 2 6 5'],
+  'emp-pay':  ['M8 2v12', 'M5 5h4.5a2 2 0 010 4H5', 'M5 9h5a2 2 0 010 4H5v-4'],
+  'emp-leave': ['M3 2h10a1 1 0 011 1v2H2V3a1 1 0 011-1z', 'M2 5h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V5z'],
   reports:    ['M4 2h8l2 2v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z', 'M6 7h4', 'M6 10h4'],
   filing:     ['M3 2h10a1 1 0 011 1v2H2V3a1 1 0 011-1z', 'M2 5h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V5z', 'M8 9v3', 'M6.5 10.5l1.5-1.5 1.5 1.5'],
   foreign:    ['M8 2a6 6 0 100 12A6 6 0 008 2z', 'M2 8h12', 'M8 2c-1.5 2-2.5 3.8-2.5 6s1 4 2.5 6', 'M8 2c1.5 2 2.5 3.8 2.5 6s-1 4-2.5 6'],
@@ -92,7 +102,8 @@ const SECTIONS: Section[] = [
   {
     title: 'HR & Payroll',
     tabs: [
-      { id: 'payroll',    label: 'Payroll & HR',     icon: 'payroll'    },
+      { id: 'people',     label: 'People',           icon: 'people'     },
+      { id: 'payroll',    label: 'Payroll',          icon: 'payroll'    },
     ],
   },
   {
@@ -107,15 +118,49 @@ const SECTIONS: Section[] = [
   },
 ];
 
+const EMPLOYEE_SECTIONS: Section[] = [
+  {
+    title: 'My workspace',
+    tabs: [
+      { id: 'emp-home', label: 'Home', icon: 'emp-home' },
+      { id: 'emp-profile', label: 'My profile', icon: 'emp-profile' },
+      { id: 'emp-pay', label: 'Pay & slips', icon: 'emp-pay' },
+      { id: 'emp-leave', label: 'Leave', icon: 'emp-leave' },
+    ],
+  },
+];
+
 const COLLAPSED_KEY = 'nav_sidebar_collapsed';
 
-const Navigation: React.FC<NavProps> = ({ activeTab, setActiveTab, orgName }) => {
+const Navigation: React.FC<NavProps> = ({
+  activeTab,
+  setActiveTab,
+  orgName,
+  portalRole = 'admin',
+  userLabel,
+  onSignOut,
+}) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted]         = useState(false);
   const [collapsed, setCollapsed]     = useState(() => {
     try { return localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
   });
   const permissions                   = getModulePermissions();
+  const peopleEnabled                 = isPeopleModuleEnabled();
+
+  const sections = useMemo(() => {
+    if (portalRole === 'employee') return EMPLOYEE_SECTIONS;
+    if (peopleEnabled) return SECTIONS;
+    return SECTIONS.map((section) => {
+      if (section.title !== 'HR & Payroll') return section;
+      return {
+        ...section,
+        tabs: section.tabs
+          .filter((t) => t.id !== 'people')
+          .map((t) => (t.id === 'payroll' ? { ...t, label: 'Payroll & HR' } : t)),
+      };
+    });
+  }, [peopleEnabled, portalRole]);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -175,7 +220,7 @@ const Navigation: React.FC<NavProps> = ({ activeTab, setActiveTab, orgName }) =>
 
       {/* ── Navigation ──────────────────────────────────────────────────── */}
       <nav className="sidebar-nav" role="navigation" aria-label="Main navigation">
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.title} className="sidebar-section">
             <span className="sidebar-section-label">{section.title}</span>
             <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
@@ -216,40 +261,40 @@ const Navigation: React.FC<NavProps> = ({ activeTab, setActiveTab, orgName }) =>
 
       {/* ── Entity Pills + Org Footer ────────────────────────────────────── */}
       <div className="sidebar-footer">
-        <div className="sidebar-entity-pills">
-          <div className="entity-pill india" title="Indian LLP (Parent)">
-            <div className="entity-dot" />
-            IN LLP
+        {portalRole === 'admin' && (
+          <div className="sidebar-entity-pills">
+            <div className="entity-pill india" title="Indian LLP (Parent)">
+              <div className="entity-dot" />
+              IN LLP
+            </div>
+            <div className="entity-pill us" title="US Subsidiary">
+              <div className="entity-dot" />
+              US Corp
+            </div>
           </div>
-          <div className="entity-pill us" title="US Subsidiary">
-            <div className="entity-dot" />
-            US Corp
-          </div>
-        </div>
+        )}
 
         <div className="sidebar-org-chip" style={{ marginTop: 8 }}>
           <div className="sidebar-org-avatar" aria-hidden="true">
-            {initials(orgName)}
+            {initials(userLabel || orgName)}
           </div>
           <div className="sidebar-org-info">
-            <div className="sidebar-org-name">{orgName || 'Select organisation'}</div>
-            <div className="sidebar-org-meta">Active organisation</div>
+            <div className="sidebar-org-name">{userLabel || orgName || 'Select organisation'}</div>
+            <div className="sidebar-org-meta">
+              {portalRole === 'employee' ? 'Employee portal' : 'Admin · Active organisation'}
+            </div>
           </div>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="rgba(255,255,255,0.28)"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            style={{ flexShrink: 0 }}
-          >
-            <path d={ICONS.chevronDown as string} />
-          </svg>
         </div>
+        {onSignOut && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="w-full mt-2 px-3 py-2 rounded-lg text-xs font-semibold text-left"
+            style={{ color: 'rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.06)' }}
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </>
   );

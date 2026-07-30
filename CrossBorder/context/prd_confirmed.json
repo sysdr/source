@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "gate": 1,
+    "cycle": 2,
+    "confirmed_at": "2026-07-30T08:10:00Z",
+    "confirmation_source": "User approved Cycle 2 Employee Factory plan including Phase 1 scope"
+  },
+  "prd": "context/specify/prd_people.json",
+  "requirements": ["REQ-082", "REQ-083", "REQ-084", "REQ-085", "REQ-086", "REQ-087", "REQ-088", "REQ-089", "REQ-090"],
+  "req_037_status": "satisfied",
+  "accepted": true
+}

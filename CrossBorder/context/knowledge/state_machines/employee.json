@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "agent_id": "domain-modeler",
+    "entity": "Employee",
+    "cycle": 2,
+    "totality": true
+  },
+  "states": ["Onboarding", "Active", "Inactive", "Notice", "Exited", "Archived"],
+  "events": [
+    "complete_onboarding",
+    "activate",
+    "deactivate",
+    "start_notice",
+    "exit",
+    "archive",
+    "rehire",
+    "hard_delete"
+  ],
+  "transitions": [
+    { "from": "Onboarding", "event": "complete_onboarding", "to": "Active", "guard": "required_fields_present_or_warn" },
+    { "from": "Onboarding", "event": "hard_delete", "to": "Archived", "note": "physical delete allowed if never payroll" },
+    { "from": "Active", "event": "deactivate", "to": "Inactive" },
+    { "from": "Active", "event": "start_notice", "to": "Notice" },
+    { "from": "Active", "event": "exit", "to": "Exited" },
+    { "from": "Inactive", "event": "activate", "to": "Active" },
+    { "from": "Inactive", "event": "exit", "to": "Exited" },
+    { "from": "Inactive", "event": "archive", "to": "Archived" },
+    { "from": "Notice", "event": "exit", "to": "Exited" },
+    { "from": "Notice", "event": "activate", "to": "Active", "note": "notice withdrawn" },
+    { "from": "Exited", "event": "archive", "to": "Archived" },
+    { "from": "Exited", "event": "rehire", "to": "Onboarding" },
+    { "from": "Archived", "event": "rehire", "to": "Onboarding" }
+  ],
+  "explicit_rejections": [
+    { "from": "Exited", "event": "deactivate", "response": "reject" },
+    { "from": "Archived", "event": "start_notice", "response": "reject" },
+    { "from": "Onboarding", "event": "start_notice", "response": "reject" },
+    { "from": "Active", "event": "archive", "response": "reject — exit first" }
+  ],
+  "payroll_eligibility": {
+    "eligible": ["Active", "Notice"],
+    "ineligible": ["Onboarding", "Inactive", "Exited", "Archived"]
+  }
+}

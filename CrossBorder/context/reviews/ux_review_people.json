@@ -1,0 +1,8 @@
+{
+  "meta": { "agent_id": "ux-critic", "cycle": 2 },
+  "findings": [
+    { "severity": "medium", "finding": "Profile requires selecting person from chip list rather than row click on directory" },
+    { "severity": "low", "finding": "Attendance day cells are dense on mobile" }
+  ],
+  "dead_ends": 0
+}

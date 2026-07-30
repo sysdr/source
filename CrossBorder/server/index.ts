@@ -29,7 +29,9 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   };
 }
 
+import './loadEnv.js';
 import http from 'node:http';
+import os from 'node:os';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   getAllKV, setKV, deleteKV, clearKV,
@@ -56,7 +58,16 @@ import { reconcileOrg } from './reconciliation.js';
 import { buildThreeWayReconciliation, type Gstr2bClaim } from '../services/threeWayReconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
+import {
+  buildMagicLoginEmail,
+  createMagicChallenge,
+  resolveMagicIdentityAcrossOrgs,
+  verifyMagicCode,
+  verifyMagicToken,
+  type MagicRole,
+} from './magicAuth.js';
 import { rebuildKvFromDomain } from './rebuildKv.js';
+import { resolvePublicAppBaseUrl } from './appBaseUrl.js';
 import {
   decryptString,
   decryptEmployeePII,
@@ -135,6 +146,8 @@ type StripeWebhookEvent = {
 };
 
 const PORT = Number(process.env.PORT) || 3001;
+/** Bind all interfaces so LAN Wi‑Fi clients can reach the API. Override with HOST=127.0.0.1 to lock local-only. */
+const HOST = process.env.HOST || '0.0.0.0';
 const getSuezApiKey = () => process.env.SUEZ_API_KEY || '';
 const getMaxBodyBytes = () => Number(process.env.MAX_BODY_BYTES) || 10_000_000; // 10 MB — large org/revenue payloads can exceed 2 MB
 const getRateLimitWindowMs = () => Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000;
@@ -143,6 +156,8 @@ const getCorsOrigins = () => (process.env.CORS_ORIGINS || 'http://localhost:9000
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
+/** Allow browser origins from private LAN IPs (default on). Set CORS_ALLOW_LAN=false to disable. */
+const corsAllowLan = () => process.env.CORS_ALLOW_LAN !== 'false';
 const rateWindowByIp = new Map<string, number[]>();
 type RequestRole = 'owner' | 'accountant' | 'employee';
 
@@ -170,12 +185,16 @@ function isPublicWriteRoute(url: string): boolean {
     || url === '/api/session/writer/claim'
     || url === '/api/session/writer/heartbeat'
     || url === '/api/session/writer/release'
+    || url === '/api/auth/magic/request'
+    || url === '/api/auth/magic/verify'
   );
 }
 
 function canWrite(req: http.IncomingMessage, url: string): boolean {
   if (!isWriteMethod(req.method)) return true;
   if (isPublicWriteRoute(url)) return true;
+  // Employee self-service profile updates (allowlisted fields only — enforced in handler)
+  if (url === '/api/employees/self' && getRequestRole(req) === 'employee') return true;
   const role = getRequestRole(req);
   // Accountant / employee are always read-only (REQ-072 / REQ-073)
   if (role === 'accountant' || role === 'employee') return false;
@@ -285,9 +304,27 @@ function getRequestOrigin(req: http.IncomingMessage): string | null {
   return typeof origin === 'string' ? origin : null;
 }
 
+function isPrivateNetworkHost(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return true;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
 function isOriginAllowed(origin: string | null): boolean {
   if (!origin) return true; // same-origin/non-browser clients
-  return getCorsOrigins().includes(origin);
+  if (getCorsOrigins().includes(origin)) return true;
+  if (!corsAllowLan()) return false;
+  try {
+    return isPrivateNetworkHost(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function corsHeaders(req: http.IncomingMessage): Record<string, string> {
@@ -342,7 +379,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       ...corsHeaders(req),
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, X-API-Key, X-SUEZ-ROLE, X-SUEZ-ACCOUNTANT-TOKEN',
+        'Content-Type, Authorization, X-API-Key, X-SUEZ-ROLE, X-SUEZ-ACCOUNTANT-TOKEN, X-SUEZ-EMPLOYEE-ID',
       'Access-Control-Max-Age': '86400',
     });
     res.end();
@@ -789,6 +826,121 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   }
 
   // ── Employees ─────────────────────────────────────────────────────────────
+  // ── Employee self-service profile (allowlisted fields) ───────────────────
+  if (url === '/api/employees/self' && req.method === 'GET') {
+    try {
+      const orgId = qs.orgId || null;
+      const employeeId = qs.employeeId || null;
+      if (!orgId || !employeeId) {
+        respond(req, res, 400, { error: 'orgId and employeeId are required' });
+        return;
+      }
+      if (getRequestRole(req) !== 'employee') {
+        respond(req, res, 403, { error: 'Employee role required' });
+        return;
+      }
+      const sessionEmpHeader = req.headers['x-suez-employee-id'];
+      const sessionEmployeeId = typeof sessionEmpHeader === 'string' ? sessionEmpHeader.trim() : '';
+      if (!sessionEmployeeId || sessionEmployeeId !== employeeId) {
+        respond(req, res, 403, { error: 'Employees may only read their own profile' });
+        return;
+      }
+      const existingRaw = (getEmployees(orgId) as Record<string, unknown>[])
+        .find((e) => e.id === employeeId);
+      if (!existingRaw) {
+        respond(req, res, 404, { error: 'Employee not found' });
+        return;
+      }
+      const employee = decryptEmployeePII(existingRaw);
+      respond(req, res, 200, { employee });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  if (url === '/api/employees/self' && req.method === 'PUT') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const employeeId = typeof body.employeeId === 'string' ? body.employeeId : null;
+      const patchRaw = body.patch && typeof body.patch === 'object'
+        ? (body.patch as Record<string, unknown>)
+        : (body.employee && typeof body.employee === 'object'
+          ? (body.employee as Record<string, unknown>)
+          : null);
+      if (!orgId || !employeeId || !patchRaw) {
+        respond(req, res, 400, { error: 'orgId, employeeId, and patch{} are required' });
+        return;
+      }
+      const sessionEmpHeader = req.headers['x-suez-employee-id'];
+      const sessionEmployeeId = typeof sessionEmpHeader === 'string' ? sessionEmpHeader.trim() : '';
+      if (!sessionEmployeeId || sessionEmployeeId !== employeeId) {
+        respond(req, res, 403, { error: 'Employees may only update their own profile' });
+        return;
+      }
+
+      const SELF_KEYS = new Set([
+        'name', 'phone', 'address', 'dateOfBirth', 'gender', 'fatherOrSpouseName',
+        'panNumber', 'aadhaarNumber', 'uan', 'esiNumber',
+        'bankAccountNumber', 'bankIFSC', 'bankName',
+        'taxRegime', 'section80C', 'section80D', 'hraExemptionRent',
+      ]);
+      const patch: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(patchRaw)) {
+        if (SELF_KEYS.has(k) && v !== undefined) patch[k] = v;
+      }
+      if (Object.keys(patch).length === 0) {
+        respond(req, res, 400, { error: 'No editable profile fields in patch' });
+        return;
+      }
+
+      const existingRaw = (getEmployees(orgId) as Record<string, unknown>[])
+        .find((e) => e.id === employeeId);
+      if (!existingRaw) {
+        respond(req, res, 404, { error: 'Employee not found' });
+        return;
+      }
+      const existing = decryptEmployeePII(existingRaw) as Record<string, unknown>;
+      const docs = {
+        ...((existing.documents as Record<string, unknown> | undefined) || {}),
+      };
+      if (typeof patch.panNumber === 'string' && patch.panNumber.trim()) docs.pan = true;
+      if (typeof patch.aadhaarNumber === 'string' && patch.aadhaarNumber.trim()) docs.aadhaar = true;
+
+      const merged = {
+        ...existing,
+        ...patch,
+        id: employeeId,
+        // Lock HR-owned fields
+        email: existing.email,
+        ctc: existing.ctc,
+        status: existing.status,
+        designation: existing.designation,
+        department: existing.department,
+        doj: existing.doj,
+        employeeType: existing.employeeType,
+        documents: docs,
+      };
+      const fullErr = validate(EmployeeSchema, merged);
+      if (fullErr) { respond(req, res, 422, { error: fullErr }); return; }
+
+      upsertEmployee(orgId, encryptEmployeePII(merged));
+      writeAuditEvent({
+        req, url, method: req.method, orgId,
+        action: 'employee_self_update', result: 'success', details: { id: employeeId, keys: Object.keys(patch) },
+      });
+      respond(req, res, 200, {
+        ok: true,
+        // Self-service returns the caller's own record unmasked
+        employee: merged,
+      });
+    } catch (err) {
+      respond(req, res, 400, { error: (err as Error).message });
+    }
+    return;
+  }
+
   if (url === '/api/employees' && req.method === 'GET') {
     const orgId = qs.orgId;
     if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
@@ -1393,9 +1545,11 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       }
       const host = req.headers.host || 'localhost:5173';
       const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
-      const appBase = typeof body.appBase === 'string' && body.appBase
-        ? body.appBase
-        : `${proto}://${host}`;
+      const appBase = resolvePublicAppBaseUrl(
+        typeof body.appBase === 'string' && body.appBase
+          ? body.appBase
+          : `${proto}://${host}`,
+      );
       const orgName = typeof body.orgName === 'string' ? body.orgName : undefined;
       const created = createAccountantInviteForOrg({ orgId, email, orgName, appBase });
       writeAuditEvent({
@@ -2111,6 +2265,137 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
+  // ── Magic link / OTP login (public) ──────────────────────────────────────────
+  // POST /api/auth/magic/request  { orgId, email, role?, appBaseUrl? }
+  // POST /api/auth/magic/verify   { orgId, email?, code? } | { orgId, token }
+
+  if (url === '/api/auth/magic/request' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      const email = typeof body.email === 'string' ? body.email : '';
+      const roleRaw = typeof body.role === 'string' ? body.role : 'auto';
+      const preferredRole =
+        roleRaw === 'admin' || roleRaw === 'employee' || roleRaw === 'auto'
+          ? (roleRaw as MagicRole | 'auto')
+          : 'auto';
+      if (!orgId) {
+        respond(req, res, 400, { error: 'orgId is required' });
+        return;
+      }
+      const identity = resolveMagicIdentityAcrossOrgs(orgId, email, preferredRole);
+      if ('error' in identity) {
+        respond(req, res, 400, { error: identity.error });
+        return;
+      }
+      const resolvedOrgId = identity.orgId;
+      const { challenge, code, token } = createMagicChallenge({ orgId: resolvedOrgId, identity });
+      const orgName =
+        ((getOrgData(resolvedOrgId, 'suez_company_profile') as { projectName?: string } | null)?.projectName)
+        || resolvedOrgId;
+      const appBase = resolvePublicAppBaseUrl(
+        typeof body.appBaseUrl === 'string' && body.appBaseUrl.trim()
+          ? body.appBaseUrl.trim().replace(/\/$/, '')
+          : process.env.APP_BASE_URL,
+      );
+      const magicUrl = `${appBase}/?magic_token=${encodeURIComponent(token)}&orgId=${encodeURIComponent(resolvedOrgId)}`;
+
+      const raw = maybeDecryptOrgData(SMTP_ORG_KEY, getOrgData(resolvedOrgId, SMTP_ORG_KEY));
+      const cfg = normalizeSmtpConfig(raw);
+      let emailSent = false;
+      let sendError: string | undefined;
+      const skipSend =
+        process.env.MAGIC_AUTH_DEV === '1'
+        || process.env.NODE_ENV === 'test';
+
+      if (skipSend) {
+        sendError = 'Magic auth dev mode — email not sent.';
+      } else if (cfg) {
+        try {
+          const mail = buildMagicLoginEmail({
+            orgName,
+            displayName: identity.displayName,
+            code,
+            magicUrl,
+            role: identity.role,
+            expiresAt: challenge.expiresAt,
+          });
+          await sendMail(cfg, { to: identity.email, ...mail });
+          emailSent = true;
+        } catch (err) {
+          sendError = (err as Error).message;
+        }
+      } else {
+        sendError = 'SMTP not configured. Save SMTP settings in Admin Panel first.';
+      }
+
+      // Always surface a code when mail fails outside production so login isn't blocked.
+      const allowDevCode =
+        process.env.MAGIC_AUTH_DEV === '1'
+        || process.env.NODE_ENV === 'test'
+        || !emailSent;
+
+      if (!emailSent && process.env.NODE_ENV === 'production' && process.env.MAGIC_AUTH_DEV !== '1') {
+        respond(req, res, 503, { error: sendError || 'Failed to send sign-in email.' });
+        return;
+      }
+
+      respond(req, res, 200, {
+        ok: true,
+        emailSent,
+        orgId: resolvedOrgId,
+        role: identity.role,
+        email: identity.email,
+        expiresAt: challenge.expiresAt,
+        ...(sendError ? { warning: sendError } : {}),
+        ...(allowDevCode && !emailSent ? { devCode: code, magicUrl } : {}),
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // Allow verify without a client orgId (magic links / lost pending state)
+  if (url === '/api/auth/magic/verify' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' && body.orgId.trim()
+        ? body.orgId.trim()
+        : 'default';
+      const token = typeof body.token === 'string' ? body.token.trim() : '';
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
+      const email = typeof body.email === 'string' ? body.email : '';
+
+      if (!token && (!email || !code)) {
+        respond(req, res, 400, { error: 'Provide a magic link token, or email + code.' });
+        return;
+      }
+
+      const result = token
+        ? verifyMagicToken(orgId, token)
+        : verifyMagicCode(orgId, email, code);
+
+      if ('error' in result) {
+        respond(req, res, 400, { error: result.error });
+        return;
+      }
+      respond(req, res, 200, {
+        ok: true,
+        session: {
+          role: result.role,
+          email: result.email,
+          orgId: result.orgId,
+          displayName: result.displayName,
+          employeeId: result.employeeId,
+        },
+      });
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
   // ── SMTP settings ────────────────────────────────────────────────────────────
   // GET  /api/smtp?orgId=          → settings without password
   // PUT  /api/smtp                 → { orgId, settings }
@@ -2347,10 +2632,11 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         data: inviteData,
       });
 
-      const appBase =
+      const appBase = resolvePublicAppBaseUrl(
         typeof body.appBaseUrl === 'string' && body.appBaseUrl.trim()
           ? body.appBaseUrl.trim().replace(/\/$/, '')
-          : (process.env.APP_BASE_URL || 'http://localhost:9000');
+          : process.env.APP_BASE_URL,
+      );
       const inviteUrl = `${appBase}/#/join?token=${token}`;
 
       let sent = false;
@@ -2560,8 +2846,15 @@ if (!process.env.VITEST) {
     console.warn('[db] snapshot rebuild failed:', (err as Error).message);
   }
   const server = createServer();
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
     const keyIsSet = getSuezApiKey() ? 'set' : 'not set';
-    console.log(`Suez API listening on http://localhost:${PORT} (SUEZ_API_KEY ${keyIsSet})`);
+    const geminiSet = (process.env.API_KEY || process.env.GEMINI_API_KEY) ? 'set' : 'not set';
+    console.log(`Suez API listening on http://localhost:${PORT} (bind ${HOST}, SUEZ_API_KEY ${keyIsSet}, GEMINI_API_KEY ${geminiSet})`);
+    for (const name of Object.keys(os.networkInterfaces())) {
+      for (const net of os.networkInterfaces()[name] ?? []) {
+        if (net.family !== 'IPv4' || net.internal) continue;
+        console.log(`  LAN: http://${net.address}:${PORT}`);
+      }
+    }
   });
 }

@@ -8,6 +8,7 @@ import {
   shouldRefreshFxRate,
   type FxRateSnapshot,
 } from './fxStaleness';
+import { getServerBaseUrl } from './serverUrl';
 
 export type BaseCurrency = 'INR' | 'USD';
 
@@ -91,11 +92,8 @@ const FRANKFURTER_CURRENCIES = new Set(['AUD', 'BGN', 'BRL', 'CAD', 'CHF', 'CNY'
 
 /** Browser FX goes through our API (avoids Frankfurter CORS). Server / Node can call Frankfurter directly. */
 function fxEndpoint(pathAndQuery: string): string {
-  const serverBase =
-    (import.meta as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL
-    ?? 'http://localhost:3001';
   if (typeof window !== 'undefined') {
-    return `${serverBase}/api/fx${pathAndQuery}`;
+    return `${getServerBaseUrl()}/api/fx${pathAndQuery}`;
   }
   return `https://api.frankfurter.app${pathAndQuery}`;
 }

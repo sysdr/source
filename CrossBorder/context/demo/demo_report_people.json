@@ -1,0 +1,10 @@
+{
+  "meta": { "agent_id": "demo-builder", "cycle": 2 },
+  "flows": [
+    { "id": "people-directory", "status": "passed", "reqs": ["REQ-082", "REQ-083"] },
+    { "id": "people-profile", "status": "passed", "reqs": ["REQ-084", "REQ-085", "REQ-087", "REQ-088"], "evidence": "unit tests + module present" },
+    { "id": "people-attendance", "status": "passed-with-friction", "reqs": ["REQ-086"], "notes": "UI + storage wired; no dedicated attendance unit test yet" },
+    { "id": "people-leaves", "status": "passed", "reqs": ["REQ-089"] },
+    { "id": "people-flag", "status": "passed", "reqs": ["REQ-090"] }
+  ]
+}

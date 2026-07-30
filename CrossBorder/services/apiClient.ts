@@ -7,13 +7,13 @@
  *   - silently no-op if the server is unreachable (returns null / [])
  *     so components always fall back to localStorage gracefully.
  *
- * Base URL: VITE_SERVER_URL env var or http://localhost:3001
+ * Base URL: VITE_SERVER_URL, or same hostname as the page on port 3001 (LAN-friendly).
  */
 
 import type { Transaction, Employee, PayrollRun, Invoice, EmployeeInvite } from '../types';
+import { getServerBaseUrl } from './serverUrl';
 
-const BASE = (import.meta as { env?: { VITE_SERVER_URL?: string; VITE_SUEZ_API_KEY?: string } }).env?.VITE_SERVER_URL
-  ?? 'http://localhost:3001';
+const BASE = getServerBaseUrl();
 
 const SUEZ_CLIENT_KEY = (import.meta as { env?: { VITE_SUEZ_API_KEY?: string } }).env?.VITE_SUEZ_API_KEY;
 
@@ -55,6 +55,15 @@ function authHeaders(): Record<string, string> {
   headers['X-SUEZ-ROLE'] = role;
   const token = getAccountantToken();
   if (token) headers['X-SUEZ-ACCOUNTANT-TOKEN'] = token;
+  if (role === 'employee') {
+    try {
+      const raw = localStorage.getItem('suez_app_session') || sessionStorage.getItem('suez_app_session');
+      if (raw) {
+        const session = JSON.parse(raw) as { employeeId?: string };
+        if (session.employeeId) headers['X-SUEZ-EMPLOYEE-ID'] = session.employeeId;
+      }
+    } catch { /* ignore */ }
+  }
   if (SUEZ_CLIENT_KEY) headers['X-API-Key'] = SUEZ_CLIENT_KEY;
   return headers;
 }
@@ -173,6 +182,33 @@ export const api = {
       body: JSON.stringify({ orgId, employee }),
     });
     return result?.ok ?? false;
+  },
+
+  async getEmployeeSelf(
+    orgId: string,
+    employeeId: string,
+  ): Promise<Employee | null> {
+    const result = await apiFetch<{ employee: Employee }>(
+      `/api/employees/self${qs({ orgId, employeeId })}`,
+    );
+    return result?.employee ?? null;
+  },
+
+  async updateEmployeeSelf(
+    orgId: string,
+    employeeId: string,
+    patch: Partial<Employee>,
+  ): Promise<{ ok: boolean; employee?: Employee; error?: string }> {
+    try {
+      const result = await apiFetch<{ ok: boolean; employee?: Employee }>('/api/employees/self', {
+        method: 'PUT',
+        body: JSON.stringify({ orgId, employeeId, patch }),
+      });
+      if (!result) return { ok: false, error: 'Server unreachable' };
+      return { ok: true, employee: result.employee };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   },
 
   async deleteEmployee(orgId: string, empId: string): Promise<boolean> {
@@ -321,6 +357,94 @@ export const api = {
       return { ok: true, ...result };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
+    }
+  },
+
+  async requestMagicLogin(body: {
+    orgId: string;
+    email: string;
+    role?: 'admin' | 'employee' | 'auto';
+    appBaseUrl?: string;
+  }): Promise<{
+    ok: boolean;
+    emailSent?: boolean;
+    role?: 'admin' | 'employee';
+    email?: string;
+    orgId?: string;
+    expiresAt?: string;
+    warning?: string;
+    devCode?: string;
+    magicUrl?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${BASE}/api/auth/magic/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok) {
+        const raw = String(data.error || res.statusText);
+        const error =
+          res.status === 404 || raw.toLowerCase() === 'not found'
+            ? 'Sign-in API not found — restart the API server (npm run server) so magic-login routes load.'
+            : raw;
+        return { ok: false, error };
+      }
+      return {
+        ok: true,
+        emailSent: Boolean(data.emailSent),
+        role: data.role as 'admin' | 'employee' | undefined,
+        email: typeof data.email === 'string' ? data.email : undefined,
+        orgId: typeof data.orgId === 'string' ? data.orgId : undefined,
+        expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : undefined,
+        warning: typeof data.warning === 'string' ? data.warning : undefined,
+        devCode: typeof data.devCode === 'string' ? data.devCode : undefined,
+        magicUrl: typeof data.magicUrl === 'string' ? data.magicUrl : undefined,
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || 'Server unreachable' };
+    }
+  },
+
+  async verifyMagicLogin(body: {
+    orgId: string;
+    email?: string;
+    code?: string;
+    token?: string;
+  }): Promise<{
+    ok: boolean;
+    session?: {
+      role: 'admin' | 'employee';
+      email: string;
+      orgId: string;
+      displayName: string;
+      employeeId?: string;
+    };
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${BASE}/api/auth/magic/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json() as {
+        ok?: boolean;
+        session?: {
+          role: 'admin' | 'employee';
+          email: string;
+          orgId: string;
+          displayName: string;
+          employeeId?: string;
+        };
+        error?: string;
+      };
+      if (!res.ok) return { ok: false, error: data.error || res.statusText };
+      return { ok: true, session: data.session };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message || 'Server unreachable' };
     }
   },
 

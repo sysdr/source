@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "agent_id": "decision-table-author",
+    "cycle": 2,
+    "table_id": "DT-EMP-STATUS-PAYROLL",
+    "coverage_ratio": 1.0,
+    "p0": true
+  },
+  "conditions": ["status"],
+  "domain": {
+    "status": ["Onboarding", "Active", "Inactive", "Notice", "Exited", "Archived"]
+  },
+  "rows": [
+    { "status": "Onboarding", "payroll_eligible": false, "appears_in_directory": true, "claim": "KC-E-001" },
+    { "status": "Active", "payroll_eligible": true, "appears_in_directory": true, "claim": "KC-E-002" },
+    { "status": "Inactive", "payroll_eligible": false, "appears_in_directory": true, "claim": "KC-E-003" },
+    { "status": "Notice", "payroll_eligible": true, "appears_in_directory": true, "claim": "KC-E-004" },
+    { "status": "Exited", "payroll_eligible": false, "appears_in_directory": true, "claim": "KC-E-005" },
+    { "status": "Archived", "payroll_eligible": false, "appears_in_directory": false, "claim": "KC-E-006" }
+  ]
+}

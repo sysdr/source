@@ -43,4 +43,27 @@ describe('Navigation', () => {
     render(<Navigation activeTab="dashboard" setActiveTab={() => {}} />);
     expect(screen.getByText('Select organisation')).toBeInTheDocument();
   });
+
+  it('renders People tab when feature flag enabled', () => {
+    render(<Navigation activeTab="dashboard" setActiveTab={() => {}} portalRole="admin" />);
+    expect(screen.getByText('People')).toBeInTheDocument();
+    expect(screen.getByText('Payroll')).toBeInTheDocument();
+  });
+
+  it('employee portal only shows workspace tabs', () => {
+    render(
+      <Navigation
+        activeTab="emp-home"
+        setActiveTab={() => {}}
+        portalRole="employee"
+        userLabel="Ada Lovelace"
+      />,
+    );
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    expect(screen.getByText('My profile')).toBeInTheDocument();
+    expect(screen.getByText('Pay & slips')).toBeInTheDocument();
+    expect(screen.getByText('Leave')).toBeInTheDocument();
+    expect(screen.queryByText('Revenue')).not.toBeInTheDocument();
+    expect(screen.queryByText('Admin Panel')).not.toBeInTheDocument();
+  });
 });

@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "agent_id": "acceptance-criteria-author",
+    "cycle": 2,
+    "artifact_version": "1.0.0"
+  },
+  "criteria": [
+    {
+      "id": "AC-082-01",
+      "req": "REQ-082",
+      "given": "ff_people_module is enabled and user is onboarded",
+      "when": "user opens navigation HR & Payroll section",
+      "then": "a People tab is visible and selecting it renders the People module"
+    },
+    {
+      "id": "AC-083-01",
+      "req": "REQ-083",
+      "given": "People directory is open",
+      "when": "user adds an employee with valid name, email, CTC, doj",
+      "then": "employee appears in the list with status Onboarding or Active as chosen"
+    },
+    {
+      "id": "AC-084-01",
+      "req": "REQ-084",
+      "given": "an employee exists",
+      "when": "user opens their profile from People",
+      "then": "identity, CTC, documents flags, status, and salary revisions section are shown"
+    },
+    {
+      "id": "AC-085-01",
+      "req": "REQ-085",
+      "given": "employee status is Onboarding",
+      "when": "user attempts start_notice",
+      "then": "transition is rejected with an explanatory message"
+    },
+    {
+      "id": "AC-085-02",
+      "req": "REQ-085",
+      "given": "employee status is Active",
+      "when": "user starts notice",
+      "then": "status becomes Notice and employee remains payroll-eligible"
+    },
+    {
+      "id": "AC-086-01",
+      "req": "REQ-086",
+      "given": "Attendance tab for month M",
+      "when": "user sets employee E on date D to Present",
+      "then": "record is persisted and reopening the month shows Present for E on D"
+    },
+    {
+      "id": "AC-087-01",
+      "req": "REQ-087",
+      "given": "employee has at least one payroll slip in history",
+      "when": "user requests hard delete",
+      "then": "delete is rejected and message instructs Exit then Archive"
+    },
+    {
+      "id": "AC-088-01",
+      "req": "REQ-088",
+      "given": "employee CTC is 1200000",
+      "when": "user adds revision to 1400000 with reason Annual",
+      "then": "employee.ctc becomes 1400000 and salaryRevisions contains the prior value"
+    },
+    {
+      "id": "AC-089-01",
+      "req": "REQ-089",
+      "given": "People module open",
+      "when": "user opens Leaves tab",
+      "then": "LeaveManagement UI is available"
+    },
+    {
+      "id": "AC-090-01",
+      "req": "REQ-090",
+      "given": "ff_people_module is false",
+      "when": "user views navigation",
+      "then": "People tab is hidden and Payroll remains available"
+    }
+  ]
+}

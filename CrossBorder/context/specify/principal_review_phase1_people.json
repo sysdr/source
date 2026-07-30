@@ -1,0 +1,12 @@
+{
+  "meta": { "agent_id": "principal-engineer-p1", "cycle": 2 },
+  "feasibility": [
+    { "feature": "FEAT-P-001", "classification": "feasible" },
+    { "feature": "FEAT-P-002", "classification": "feasible" },
+    { "feature": "FEAT-P-003", "classification": "feasible-with-risk", "note": "attendance only localStorage/org until API added; acceptable for MVP" },
+    { "feature": "FEAT-P-004", "classification": "feasible" }
+  ],
+  "hidden_complexity": ["status transition guards", "delete vs archive with payroll history"],
+  "one_way_doors": ["rejecting hard delete when payroll history exists"],
+  "simplification": "Reuse EmployeeDirectory and LeaveManagement; do not rewrite payroll calculator"
+}

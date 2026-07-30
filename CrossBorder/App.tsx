@@ -8,6 +8,12 @@ import { runOrchestrator, appendTurn } from './agents';
 import { runAsyncOperation, IDLE_ASYNC_STATE, type AsyncOperationState } from './services/asyncOperation';
 import AsyncStatusBanner from './components/AsyncStatusBanner';
 import {
+  EmployeeHome,
+  EmployeeProfileSelf,
+  EmployeePaySelf,
+  EmployeeLeaveSelf,
+} from './components/employee/EmployeePortal';
+import {
   getCompanyProfile,
   isOnboarded as checkOnboarded,
   getStripeCredentials,
@@ -21,6 +27,14 @@ import {
   setUIState,
   StorageKeys,
 } from './services/storageService';
+import {
+  getAppSession,
+  logoutAppSession,
+  ADMIN_DEFAULT_TAB,
+  EMPLOYEE_DEFAULT_TAB,
+  isTabAllowedForSession,
+  type AppSession,
+} from './services/sessionAuth';
 import { runDailySyncIfDue } from './services/stripeSyncService';
 import { seedDefaultFilingTasksForFY } from './services/filingCalendarService';
 import { fetchTodayUsdToInrRate } from './services/currencyService';
@@ -41,6 +55,8 @@ const TransferPricing   = lazy(() => import('./components/TransferPricing'));
 const TaxEngine         = lazy(() => import('./components/TaxEngine'));
 const RevenueIngestion  = lazy(() => import('./components/RevenueIngestion'));
 const PayrollEngine     = lazy(() => import('./components/Payroll'));
+const PeopleModule      = lazy(() => import('./components/people'));
+const LandingPage       = lazy(() => import('./components/LandingPage'));
 const AccountingModule  = lazy(() => import('./components/Accounting'));
 const BalanceOverview   = lazy(() => import('./components/BalanceOverview'));
 const FinanceModule     = lazy(() => import('./components/Finance'));
@@ -77,6 +93,25 @@ function parseAccountantTokenFromHash(): string | null {
   return new URLSearchParams(match[1]).get('token');
 }
 
+function parseMagicLoginFromHash(): { token: string; orgId: string | null } | null {
+  // Query string form survives email-client link rewriting (fragments are often dropped)
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const qToken = params.get('magic_token') || params.get('token');
+    if (qToken) {
+      return { token: qToken, orgId: params.get('orgId') };
+    }
+  } catch { /* ignore */ }
+
+  const hash = window.location.hash || '';
+  const match = hash.match(/#\/?login\?([^#]*)/i);
+  if (!match) return null;
+  const hashParams = new URLSearchParams(match[1]);
+  const token = hashParams.get('token') || hashParams.get('magic_token');
+  if (!token) return null;
+  return { token, orgId: hashParams.get('orgId') };
+}
+
 /* ─── Page title map ─────────────────────────────────────────────────────── */
 const PAGE_LABELS: Record<string, { title: string; section: string }> = {
   dashboard:  { title: 'Dashboard',          section: 'Overview'              },
@@ -94,7 +129,12 @@ const PAGE_LABELS: Record<string, { title: string; section: string }> = {
   taxation:   { title: 'Tax Strategy',        section: 'Finance & Accounting'  },
   invoices:   { title: 'Invoices',            section: 'Finance & Accounting'  },
   mercury:    { title: 'Mercury Bank',        section: 'Finance & Accounting'  },
-  payroll:    { title: 'Payroll & HR',        section: 'HR & Payroll'          },
+  payroll:    { title: 'Payroll',             section: 'HR & Payroll'          },
+  people:     { title: 'People',              section: 'HR & Payroll'          },
+  'emp-home': { title: 'Home',                section: 'My workspace'          },
+  'emp-profile': { title: 'My profile',       section: 'My workspace'          },
+  'emp-pay':  { title: 'Pay & slips',         section: 'My workspace'          },
+  'emp-leave': { title: 'Leave',              section: 'My workspace'          },
   reports:    { title: 'Compliance Hub',      section: 'Compliance'            },
   filing:     { title: 'Filing Calendar',     section: 'Compliance'            },
   foreign:    { title: 'Foreign Income & WHT',section: 'Compliance'            },
@@ -124,7 +164,16 @@ const Ico: React.FC<{ d: string | string[]; size?: number; style?: React.CSSProp
 const App: React.FC = () => {
   const [joinToken, setJoinToken] = useState<string | null>(() => parseJoinTokenFromHash());
   const [accountantToken, setAccountantTokenState] = useState<string | null>(() => parseAccountantTokenFromHash());
-  const [activeTab, setActiveTabState]       = useState(() => getUIState(StorageKeys.UI_ACTIVE_TAB, 'dashboard'));
+  const [magicLogin, setMagicLogin] = useState(() => parseMagicLoginFromHash());
+  const [session, setSession] = useState<AppSession | null>(() => getAppSession());
+  const [activeTab, setActiveTabState]       = useState(() => {
+    const s = getAppSession();
+    const saved = getUIState(StorageKeys.UI_ACTIVE_TAB, s?.role === 'employee' ? EMPLOYEE_DEFAULT_TAB : ADMIN_DEFAULT_TAB);
+    if (s && !isTabAllowedForSession(saved, s)) {
+      return s.role === 'employee' ? EMPLOYEE_DEFAULT_TAB : ADMIN_DEFAULT_TAB;
+    }
+    return saved;
+  });
   const [query, setQuery]                    = useState('');
   const [advice, setAdvice]                  = useState('');
   const [isLoadingAdvice, setIsLoadingAdvice]= useState(false);
@@ -146,8 +195,37 @@ const App: React.FC = () => {
   const [fxRate, setFxRate]                  = useState<number | null>(null);
 
   const setActiveTab = (tab: string) => {
+    if (session && !isTabAllowedForSession(tab, session)) return;
     setActiveTabState(tab);
     setUIState(StorageKeys.UI_ACTIVE_TAB, tab);
+  };
+
+  const handleSignedIn = (next: AppSession) => {
+    setSession(next);
+    setMagicLogin(null);
+    setShowStartupPage(false);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      const hadMagic =
+        url.searchParams.has('magic_token')
+        || url.searchParams.has('token')
+        || url.hash.toLowerCase().includes('login');
+      if (hadMagic) {
+        url.searchParams.delete('magic_token');
+        url.searchParams.delete('token');
+        url.searchParams.delete('orgId');
+        url.hash = '';
+        window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+      }
+    }
+    const tab = next.role === 'employee' ? EMPLOYEE_DEFAULT_TAB : ADMIN_DEFAULT_TAB;
+    setActiveTabState(tab);
+    setUIState(StorageKeys.UI_ACTIVE_TAB, tab);
+  };
+
+  const handleSignOut = () => {
+    logoutAppSession();
+    setSession(null);
   };
 
   const stripeCredentials = getStripeCredentials();
@@ -158,6 +236,7 @@ const App: React.FC = () => {
     const onHash = () => {
       setJoinToken(parseJoinTokenFromHash());
       setAccountantTokenState(parseAccountantTokenFromHash());
+      setMagicLogin(parseMagicLoginFromHash());
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -453,13 +532,38 @@ const App: React.FC = () => {
   }
 
   /* ──────────────────────────────────────────────────────────────────────
+     LANDING / SIGN-IN (common for admin + employee)
+  ────────────────────────────────────────────────────────────────────── */
+  if (!session) {
+    return (
+      <Suspense fallback={
+        <div style={{ minHeight: '100vh', background: '#0b1220', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="spinner spinner-lg" style={{ borderTopColor: '#34d399' }} />
+        </div>
+      }>
+        <LandingPage
+          orgName={companyProfile?.projectName}
+          onSignedIn={handleSignedIn}
+          magicToken={magicLogin?.token}
+          magicOrgId={magicLogin?.orgId}
+        />
+      </Suspense>
+    );
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────
      MAIN APP SHELL
   ────────────────────────────────────────────────────────────────────── */
   const pageInfo = PAGE_LABELS[activeTab] ?? { title: 'Module', section: 'CrossBorder' };
+  const isEmployeePortal = session.role === 'employee';
 
   const renderContent = () => {
     const content = (() => {
       switch (activeTab) {
+        case 'emp-home':    return <EmployeeHome onNavigate={setActiveTab} />;
+        case 'emp-profile': return <EmployeeProfileSelf />;
+        case 'emp-pay':     return <EmployeePaySelf onNavigate={setActiveTab} />;
+        case 'emp-leave':   return <EmployeeLeaveSelf />;
         case 'dashboard':   return <Dashboard stripeApiKey={stripeApiKey} onConnectClick={() => setActiveTab('revenue')} />;
         case 'agents':      return <AgentArchitectureView />;
         case 'balance':     return <BalanceOverview />;
@@ -482,6 +586,7 @@ const App: React.FC = () => {
         case 'ustax':       return <USTaxScreen />;
         case 'finance':     return <FinanceModule />;
         case 'payroll':     return <PayrollEngine />;
+        case 'people':      return <PeopleModule />;
         case 'transfer':    return <TransferPricing />;
         case 'taxation':    return <TaxEngine />;
         case 'invoices':    return <Invoices />;
@@ -512,6 +617,9 @@ const App: React.FC = () => {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           orgName={companyProfile?.projectName}
+          portalRole={session.role}
+          userLabel={session.displayName}
+          onSignOut={handleSignOut}
         />
 
         {/* ── Main Content Area ───────────────────────────────────────── */}
@@ -538,8 +646,7 @@ const App: React.FC = () => {
             {/* Right side controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
 
-              {/* FX Rate Ticker */}
-              {fxRate && (
+              {!isEmployeePortal && fxRate && (
                 <div className="header-fx-ticker">
                   <span className="header-fx-label">USD/INR</span>
                   <span style={{ fontWeight: 600, color: 'var(--n-700)' }}>
@@ -548,13 +655,10 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Fiscal Year Badge */}
-              <div className="header-fy-badge">FY 2025–26</div>
+              {!isEmployeePortal && <div className="header-fy-badge">FY 2025–26</div>}
+              {!isEmployeePortal && <CurrencySelector />}
 
-              {/* Currency Selector */}
-              <CurrencySelector />
-
-              {/* Org Switcher */}
+              {!isEmployeePortal && (
               <button
                 type="button"
                 onClick={() => setShowOrgManager(true)}
@@ -584,8 +688,9 @@ const App: React.FC = () => {
                 </span>
                 <Ico d="M4 6l4 4 4-4" size={11} style={{ color: 'var(--n-400)', flexShrink: 0 }} />
               </button>
+              )}
 
-              {/* AI Assistant toggle */}
+              {!isEmployeePortal && (
               <button
                 type="button"
                 className="header-icon-btn"
@@ -603,16 +708,20 @@ const App: React.FC = () => {
                   }} />
                 )}
               </button>
+              )}
 
-              {/* Notifications */}
-              <button type="button" className="header-icon-btn" title="Notifications" aria-label="Notifications">
-                <Ico d={['M8 2a5 5 0 00-5 5v3l-1 2h12l-1-2V7a5 5 0 00-5-5z', 'M6.5 13a1.5 1.5 0 003 0']} size={16} />
-                <span className="header-notif-dot" aria-hidden="true" />
+              <button
+                type="button"
+                className="header-icon-btn"
+                title="Sign out"
+                aria-label="Sign out"
+                onClick={handleSignOut}
+              >
+                <Ico d={['M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3', 'M10 11l3-3-3-3', 'M6 8h7']} size={16} />
               </button>
 
-              {/* User Avatar */}
-              <div className="header-avatar" title="Account settings" role="button">
-                {(companyProfile?.projectName ?? 'CB').slice(0, 2).toUpperCase()}
+              <div className="header-avatar" title={session.displayName} role="img">
+                {session.displayName.slice(0, 2).toUpperCase()}
               </div>
             </div>
           </header>
@@ -626,7 +735,7 @@ const App: React.FC = () => {
         </div>
 
         {/* ── Org Manager Overlay ──────────────────────────────────────── */}
-        {showOrgManager && (
+        {showOrgManager && !isEmployeePortal && (
           <Suspense fallback={null}>
             <OrgManager
               onClose={() => setShowOrgManager(false)}
@@ -639,7 +748,7 @@ const App: React.FC = () => {
         )}
 
         {/* ── AI Assistant Widget ──────────────────────────────────────── */}
-        {aiWidgetOpen && (
+        {aiWidgetOpen && !isEmployeePortal && (
           <div style={{
             position: 'fixed',
             bottom: 24,

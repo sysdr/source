@@ -1,0 +1,10 @@
+{
+  "meta": { "agent_id": "product-reviewer", "cycle": 2 },
+  "features": {
+    "FEAT-P-001": { "rating": "strong", "note": "People nav + directory reuse" },
+    "FEAT-P-002": { "rating": "adequate", "note": "Profile + lifecycle; PII still plain" },
+    "FEAT-P-003": { "rating": "adequate", "note": "Attendance month grid works" },
+    "FEAT-P-004": { "rating": "strong", "note": "Leave reused" }
+  },
+  "so_what": "HR operator can manage people without opening payroll run tab"
+}

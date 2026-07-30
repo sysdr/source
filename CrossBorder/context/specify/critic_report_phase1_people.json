@@ -1,0 +1,18 @@
+{
+  "meta": { "agent_id": "adversarial-critic-p1", "cycle": 2 },
+  "objections": [
+    {
+      "id": "OBJ-P-001",
+      "severity": "medium",
+      "attack": "People vs Payroll dual directory confuses users",
+      "resolution": "People is primary master; Payroll keeps optional directory link labeled Manage in People or retains shared component without duplicating nav emphasis"
+    },
+    {
+      "id": "OBJ-P-002",
+      "severity": "low",
+      "attack": "Attendance without LOP payroll integration is incomplete",
+      "resolution": "Cycle 2 stores attendance; LOP wiring already exists via leave — document as P1 follow-up for Absent→LOP auto"
+    }
+  ],
+  "critical_blocking": []
+}

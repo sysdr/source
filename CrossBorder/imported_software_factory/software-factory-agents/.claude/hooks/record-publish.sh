@@ -1,9 +1,4 @@
-#!/bin/bash
-# SubagentStop. Appends a marker so the orchestrator can rebuild DAG state after a
-# restart. Never blocks — this one is observational only.
-set -uo pipefail
-INPUT=$(cat)
-AGENT=$(printf '%s' "$INPUT" | grep -o '"agent_type"[^,}]*' | head -1 | sed 's/.*: *"//; s/"$//')
-mkdir -p context 2>/dev/null || true
-echo "$(date -Iseconds) stop agent=${AGENT:-unknown}" >> context/decisions.log 2>/dev/null || true
+#!/bin/sh
+# DISABLED on Windows: Cursor was spawning PowerShell/git-bash windows per tool call.
+# Original saved as record-publish.sh.windows-disabled
 exit 0

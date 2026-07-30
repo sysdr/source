@@ -33,7 +33,8 @@
     "Multi-entity onboarding wizard (India parent + US subsidiary profile, payroll config, accounting config)",
     "Revenue ingestion: Stripe live sync, mock mode, OIDAR/export classification by customer country",
     "General ledger, Balance Sheet, P&L, journal entries, GST Center (GSTR-1/3B drafts, ITC calc)",
-    "Payroll: employee directory, salary slips, EPF/PT/TDS calc, Sec 194T partner TDS, leave management",
+    "People module: first-class employee directory, profile (status lifecycle, docs, salary revisions), attendance calendar, leave management",
+    "Payroll: salary slips, EPF/PT/TDS calc, Sec 194T partner TDS, batch payroll run (consumes People master)",
     "Transfer pricing calculator with post-to-ledger intercompany transaction creation",
     "Tax Engine: book profit, Sec 40(b) partner remuneration, US 21% tax estimate, Form 5472 draft context",
     "Compliance Hub: digital document vault, filing calendar, statutory report downloads",
@@ -48,8 +49,16 @@
     "Real bank feed integrations beyond partial Mercury/Stripe",
     "Schema-compliant regulatory filing generation (current exports are generic CSV/TXT placeholders)",
     "Inventory and fixed-asset depreciation modules",
-    "Edit/delete on ledger transactions and employee records (append-only currently)"
+    "Edit/delete on ledger transactions (append-only currently)",
+    "Org chart / reporting-manager tree visualization",
+    "Full multi-user authentication for employee self-service login"
   ],
+  "cycle_2_change_request": {
+    "title": "Employee Management / People module",
+    "approved_at": "2026-07-30",
+    "scope": ["people_nav", "employee_profile", "attendance_ui", "status_lifecycle", "salary_revisions", "leave_linkage"],
+    "out_of_scope": ["org_chart", "full_auth", "payroll_batch_redesign"]
+  },
   "scale_expectation": {
     "at_launch": "Single organisation / single founder-operator, low transaction volume",
     "one_year": "Small number of India-US founder organisations (tens), single-tenant-per-browser unless multi-tenant auth added",

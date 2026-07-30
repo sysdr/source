@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from './index';
 import { createBackup, getBackupStatus, verifyBackup } from './backup';
+import { setOrgData, upsertEmployee } from './db';
 
 let activeServer: http.Server | null = null;
 
@@ -1225,5 +1226,175 @@ describe('backup helpers', () => {
     expect(body.dryRun).toBe(true);
     expect(body.candidates.length).toBeGreaterThan(0);
     expect(body.email.subject).toMatch(/overdue|reminder/i);
+  });
+});
+
+describe('magic link / OTP auth API', () => {
+  it('requests and verifies a sign-in code without SMTP (dev code)', async () => {
+    process.env.NODE_ENV = 'test';
+    const orgId = `magic-api-${Date.now()}`;
+    setOrgData(orgId, 'suez_smtp_settings', {
+      host: 'smtp.example.com',
+      port: 587,
+      username: 'ops@acme.test',
+      password: 'x',
+      fromEmail: 'ops@acme.test',
+      fromName: 'Ops',
+      enabled: true,
+    });
+    upsertEmployee(orgId, {
+      id: 'E-1',
+      name: 'Sam',
+      email: 'sam@acme.test',
+      status: 'Active',
+    });
+
+    const baseUrl = await startServer();
+    const reqRes = await fetch(`${baseUrl}/api/auth/magic/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgId,
+        email: 'sam@acme.test',
+        role: 'employee',
+        appBaseUrl: 'http://localhost:9000',
+      }),
+    });
+    expect(reqRes.status).toBe(200);
+    const reqBody = await reqRes.json() as { ok: boolean; devCode?: string; emailSent?: boolean };
+    expect(reqBody.ok).toBe(true);
+    expect(reqBody.devCode).toMatch(/^\d{6}$/);
+
+    const verifyRes = await fetch(`${baseUrl}/api/auth/magic/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgId,
+        email: 'sam@acme.test',
+        code: reqBody.devCode,
+      }),
+    });
+    expect(verifyRes.status).toBe(200);
+    const verifyBody = await verifyRes.json() as {
+      ok: boolean;
+      session: { role: string; employeeId?: string };
+    };
+    expect(verifyBody.ok).toBe(true);
+    expect(verifyBody.session.role).toBe('employee');
+    expect(verifyBody.session.employeeId).toBe('E-1');
+  });
+
+  it('allows employee role header to call public magic routes', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const orgId = `magic-pub-${Date.now()}`;
+    setOrgData(orgId, 'suez_smtp_settings', {
+      host: 'smtp.example.com',
+      port: 587,
+      username: 'ops@acme.test',
+      password: 'x',
+      fromEmail: 'ops@acme.test',
+      fromName: 'Ops',
+      enabled: true,
+    });
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/auth/magic/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+      },
+      body: JSON.stringify({ orgId, email: 'ops@acme.test', role: 'admin' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; role?: string };
+    expect(body.ok).toBe(true);
+    expect(body.role).toBe('admin');
+  });
+
+  it('allows employee self-service profile update for own record only', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const orgId = `self-upd-${Date.now()}`;
+    upsertEmployee(orgId, {
+      id: 'E-SELF',
+      name: 'Self User',
+      designation: 'Analyst',
+      ctc: 800000,
+      doj: '2023-06-01',
+      status: 'Active',
+      email: 'self@acme.test',
+      documents: { pan: false, aadhaar: false, contract: true },
+      phone: '1111111111',
+    });
+    upsertEmployee(orgId, {
+      id: 'E-OTHER',
+      name: 'Other User',
+      designation: 'Analyst',
+      ctc: 800000,
+      doj: '2023-06-01',
+      status: 'Active',
+      email: 'other@acme.test',
+      documents: { pan: false, aadhaar: false, contract: true },
+    });
+    const baseUrl = await startServer();
+
+    const denied = await fetch(`${baseUrl}/api/employees/self`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-SELF',
+      },
+      body: JSON.stringify({
+        orgId,
+        employeeId: 'E-OTHER',
+        patch: { phone: '999' },
+      }),
+    });
+    expect(denied.status).toBe(403);
+
+    const blockedAdminPath = await fetch(`${baseUrl}/api/employees/E-SELF`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-SELF',
+      },
+      body: JSON.stringify({
+        orgId,
+        employee: { phone: '2222222222', ctc: 1 },
+      }),
+    });
+    expect(blockedAdminPath.status).toBe(403);
+
+    const ok = await fetch(`${baseUrl}/api/employees/self`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SUEZ-ROLE': 'employee',
+        'X-SUEZ-EMPLOYEE-ID': 'E-SELF',
+      },
+      body: JSON.stringify({
+        orgId,
+        employeeId: 'E-SELF',
+        patch: {
+          phone: '9999999999',
+          bankIFSC: 'HDFC0001111',
+          ctc: 1,
+          status: 'Exited',
+        },
+      }),
+    });
+    expect(ok.status).toBe(200);
+    const body = await ok.json() as {
+      ok: boolean;
+      employee: { phone?: string; bankIFSC?: string; ctc: number; status: string };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.employee.phone).toBe('9999999999');
+    expect(body.employee.bankIFSC).toBe('HDFC0001111');
+    expect(body.employee.ctc).toBe(800000);
+    expect(body.employee.status).toBe('Active');
   });
 });

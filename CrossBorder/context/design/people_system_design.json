@@ -1,0 +1,14 @@
+{
+  "meta": { "agent_id": "system-architect", "cycle": 2 },
+  "modules": {
+    "People": {
+      "paths": ["components/people/", "hooks/useEmployees.ts", "hooks/useAttendance.ts", "services/employeeLifecycle.ts", "services/featureFlags.ts"],
+      "owns_reqs": ["REQ-082", "REQ-083", "REQ-084", "REQ-085", "REQ-086", "REQ-087", "REQ-088", "REQ-089", "REQ-090"]
+    },
+    "Payroll": {
+      "consumes": ["Employee.status for eligibility per DT-EMP-STATUS-PAYROLL"]
+    }
+  },
+  "feature_flag": "ff_people_module",
+  "adr": "context/adrs/ADR-002-people-module-boundary.md"
+}

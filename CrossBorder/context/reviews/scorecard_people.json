@@ -1,0 +1,21 @@
+{
+  "meta": { "agent_id": "scorecard", "cycle": 2, "slice": "people" },
+  "dimensions": {
+    "correctness": { "score": 88, "floor": 90, "below_floor": true, "note": "People unit tests green; attendance needs stronger suite; Cycle1 Stryker still pending" },
+    "domain_fidelity": { "score": 90, "floor": 85, "below_floor": false },
+    "experience": { "score": 82, "floor": 75, "below_floor": false },
+    "reliability": { "score": 88, "floor": 85, "below_floor": false },
+    "performance": { "score": 90, "floor": 80, "below_floor": false },
+    "security_privacy": { "score": 86, "floor": 95, "below_floor": true, "note": "Parked Cycle1 DAST; PII still plain in client for People profile" },
+    "accessibility": { "score": 84, "floor": 90, "below_floor": true, "note": "labels on attendance selects; SR audit not re-run" },
+    "operability": { "score": 85, "floor": 75, "below_floor": false }
+  },
+  "composite": 86,
+  "composite_capped_by_floor": 84,
+  "marginal_gain_vs_cycle1_capped": -2,
+  "top_leverage": [
+    "Attendance dedicated tests",
+    "Mask PII on profile",
+    "Resume Cycle1 DAST/SR"
+  ]
+}

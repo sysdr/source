@@ -48,7 +48,10 @@
 
     {"id": "REQ-035", "class": "user", "statement": "As a founder, I want to run monthly payroll in one click and download all outputs (salary slips, PF ECR, TDS summary) as a single archive.", "rationale": "Current flow requires visiting multiple screens.", "priority": "P0", "source": "brief", "owning_module": "Payroll", "verification_method": "e2e", "blast_radius": "reversible"},
     {"id": "REQ-036", "class": "user", "statement": "As a founder, I want the compliance hub to show me what filings are due this month, which are data-ready, and which have blocking gaps.", "rationale": "Currently shows hardcoded items.", "priority": "P0", "source": "brief", "owning_module": "ComplianceHub", "verification_method": "e2e", "blast_radius": "reversible"},
-    {"id": "REQ-037", "class": "user", "statement": "As a founder, I want to edit employee details (designation, salary, bank, tax regime) after initial creation.", "rationale": "Currently add-only; no edit capability.", "priority": "P1", "source": "FEATURE_REPORT.md", "owning_module": "Payroll", "verification_method": "e2e", "blast_radius": "reversible"},
+    {"id": "REQ-037", "class": "user", "status": "satisfied", "satisfied_at": "2026-07-30",
+      "statement": "As a founder, I want to edit employee details (designation, salary, bank, tax regime) after initial creation.",
+      "rationale": "Satisfied by EmployeeDirectory edit modal (observed Cycle 2); People owns master CRUD.",
+      "priority": "P1", "source": "FEATURE_REPORT.md", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
     {"id": "REQ-038", "class": "user", "statement": "As a CA/accountant, I want to download filing-ready data in the exact format accepted by GSTN/Traces/IRS portals.", "rationale": "Currently generic TXT/CSV.", "priority": "P0", "source": "brief", "owning_module": "ComplianceHub", "verification_method": "e2e", "blast_radius": "costly"},
     {"id": "REQ-039", "class": "user", "statement": "As a founder, I want to see real-time FIRC status (wires pending vs. received) derived from actual bank data.", "rationale": "Currently static display.", "priority": "P1", "source": "FEATURE_REPORT.md", "owning_module": "ComplianceHub", "verification_method": "e2e", "blast_radius": "reversible"},
     {"id": "REQ-040", "class": "user", "statement": "As a founder, I want the onboarding wizard to let me add and remove revenue channels and expense categories.", "rationale": "Add buttons have no handlers.", "priority": "P2", "source": "FEATURE_REPORT.md", "owning_module": "Onboarding", "verification_method": "e2e", "blast_radius": "reversible"},
@@ -180,6 +183,34 @@
 
     {"id": "REQ-081", "class": "external_interface", "gap_closes": "GAP-EI-005",
       "statement": "The system shall export the full general ledger and chart-of-accounts mapping in a Tally-compatible CSV format (voucher type, date, ledger name, debit, credit, narration) and a standard trial balance CSV. These exports shall allow a CA to import into Tally Prime without manual reformatting.",
-      "rationale": "Most Indian CAs use Tally; this removes a critical adoption blocker.", "priority": "P1", "source": "product-strategist", "owning_module": "Accounting", "verification_method": "e2e", "blast_radius": "reversible"}
+      "rationale": "Most Indian CAs use Tally; this removes a critical adoption blocker.", "priority": "P1", "source": "product-strategist", "owning_module": "Accounting", "verification_method": "e2e", "blast_radius": "reversible"},
+
+    {"id": "REQ-082", "class": "functional", "cycle": 2,
+      "statement": "The system shall expose a first-class People navigation module for employee master data, separate from Payroll run workflows.",
+      "rationale": "Employee directory buried under Payroll & HR only.", "priority": "P0", "source": "cycle-2-brief", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible", "knowledge_claims": ["VH-E-001"]},
+    {"id": "REQ-083", "class": "functional", "cycle": 2,
+      "statement": "The People module shall allow create, read, update, and soft-exit of employees with field validation for PAN, bank, and tax regime.",
+      "rationale": "REQ-037 edit now observed in code; People owns master CRUD.", "priority": "P0", "source": "cycle-2", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
+    {"id": "REQ-084", "class": "functional", "cycle": 2,
+      "statement": "The system shall provide an employee profile view showing identity, compensation, documents checklist, status lifecycle actions, and salary revision history.",
+      "rationale": "No dedicated profile page exists.", "priority": "P0", "source": "cycle-2", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
+    {"id": "REQ-085", "class": "functional", "cycle": 2,
+      "statement": "Employee status transitions shall follow the Employee state machine; invalid transitions shall be rejected with a clear message.",
+      "rationale": "state_machines/employee.json totality.", "priority": "P0", "source": "KC-domain", "owning_module": "People", "verification_method": "unit", "blast_radius": "costly"},
+    {"id": "REQ-086", "class": "functional", "cycle": 2,
+      "statement": "The system shall allow marking attendance per employee per calendar day with statuses Present, Absent, Half-day, WFH, Holiday, Leave, unique on (employeeId, date).",
+      "rationale": "AttendanceRecord typed and stored but no UI.", "priority": "P0", "source": "data_profile", "owning_module": "People", "verification_method": "integration", "blast_radius": "reversible"},
+    {"id": "REQ-087", "class": "functional", "cycle": 2,
+      "statement": "Hard delete of an employee who has payroll run history shall be rejected; operator must transition to Exited then Archived.",
+      "rationale": "OQ-E-005 Gate 0 resolution.", "priority": "P0", "source": "OQ-E-005", "owning_module": "People", "verification_method": "unit", "blast_radius": "irreversible"},
+    {"id": "REQ-088", "class": "functional", "cycle": 2,
+      "statement": "Appending a salary revision shall record effectiveDate, previousCTC, newCTC, and reason on the employee without mutating historical payroll slips.",
+      "rationale": "salaryRevisions field unused in UI.", "priority": "P1", "source": "cycle-2", "owning_module": "People", "verification_method": "unit", "blast_radius": "costly"},
+    {"id": "REQ-089", "class": "functional", "cycle": 2,
+      "statement": "Leave management shall remain available from the People module and continue to use existing leave storage APIs.",
+      "rationale": "HR operator workflow continuity.", "priority": "P0", "source": "cycle-2", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"},
+    {"id": "REQ-090", "class": "non_functional", "cycle": 2,
+      "statement": "The People module shall ship behind feature flag ff_people_module defaulting to enabled for Cycle 2 demo, with clean off-path returning to Payroll-only HR entry.",
+      "rationale": "AGENTS.md feature flag rule.", "priority": "P0", "source": "AGENTS.md", "owning_module": "People", "verification_method": "e2e", "blast_radius": "reversible"}
   ]
 }

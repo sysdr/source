@@ -12,6 +12,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { getActiveOrgId } from '../services/storageService';
+import { getServerBaseUrl } from '../services/serverUrl';
 
 // ── Types (mirror server/reconciliation.ts without importing server code) ─────
 
@@ -52,7 +53,9 @@ export interface ReconciliationReport {
 
 // ── Fetcher ───────────────────────────────────────────────────────────────────
 
-const BASE = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE ?? 'http://localhost:3001';
+import { getServerBaseUrl } from '../services/serverUrl';
+
+const BASE = getServerBaseUrl();
 
 export interface UseReconciliationOptions {
   /** When true, each successful fetch stores a row in SQLite (`reports`, type `reconciliation`). */

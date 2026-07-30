@@ -1,0 +1,6 @@
+{
+  "meta": { "agent_id": "domain-fidelity-reviewer", "cycle": 2 },
+  "vocabulary": "People / employee / attendance match glossary",
+  "rule_spot_checks": ["payroll eligibility Active+Notice", "hard delete blocked with history"],
+  "sharp_edges": "CTC INR annual; attendance calendar dates without TZ"
+}

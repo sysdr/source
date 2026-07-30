@@ -7,7 +7,7 @@ The committed SQLite file `data/suez.db` is the workspace snapshot (org, ledger,
 **Prerequisites:** Node.js
 
 1. `npm install`
-2. Copy `.env.local` keys as needed (`GEMINI_API_KEY`, optional `VITE_SERVER_URL`)
+2. Copy `.env.example` → `.env` and set `GEMINI_API_KEY` (optional `VITE_SERVER_URL`)
 3. Start API + UI (API first so hydration works):
 
 ```bash
