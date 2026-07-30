@@ -1,0 +1,118 @@
+{
+  "project": "Project Suez \u2014 Cross-Border Financial OS",
+  "repository": "CrossBorder",
+  "cycle": 2,
+  "max_cycles": 6,
+  "cycle_started": "2026-07-30",
+  "cycle_objective": "People module + portal amplify + Gate3 floors + FINAL package",
+  "requested_scope": "Cycle 2 People + Gate3 floors + Gate3 package",
+  "phases_in_scope": [
+    "knowledge",
+    "specify",
+    "design",
+    "build",
+    "verify",
+    "review",
+    "deploy"
+  ],
+  "phases_out_of_scope": [],
+  "token_budget_remaining": 0.05,
+  "scorecard_history": [
+    {
+      "cycle": 1,
+      "pass": "baseline",
+      "composite": 82,
+      "composite_capped_by_floor": 72
+    },
+    {
+      "cycle": 1,
+      "pass": "harden",
+      "composite": 88,
+      "composite_capped_by_floor": 84,
+      "marginal_gain": 6
+    },
+    {
+      "cycle": 1,
+      "pass": "gate3-prep",
+      "composite": 90,
+      "composite_capped_by_floor": 86,
+      "marginal_gain": 2
+    },
+    {
+      "cycle": 2,
+      "pass": "people-module",
+      "composite": 86,
+      "composite_capped_by_floor": 84,
+      "marginal_gain": -2
+    },
+    {
+      "cycle": 2,
+      "pass": "portal-amplify",
+      "composite": 89,
+      "composite_capped_by_floor": 86,
+      "marginal_gain": 2
+    },
+    {
+      "cycle": 2,
+      "pass": "rw-p-005-a11y",
+      "composite": 89,
+      "composite_capped_by_floor": 88,
+      "marginal_gain": 2
+    },
+    {
+      "cycle": 2,
+      "pass": "gate3-floors-rw-p-003",
+      "composite": 90,
+      "composite_capped_by_floor": 90,
+      "marginal_gain": 2
+    },
+    {
+      "cycle": 2,
+      "pass": "gate3-package",
+      "composite": 90,
+      "composite_capped_by_floor": 90,
+      "marginal_gain": 0
+    },
+    {
+      "cycle": 2,
+      "pass": "optional-polish-screenshots-stryker",
+      "composite": 90,
+      "composite_capped_by_floor": 90,
+      "marginal_gain": 0
+    },
+    {
+      "cycle": 2,
+      "pass": "rw-009b-people-stryker",
+      "composite": 90,
+      "composite_capped_by_floor": 90,
+      "marginal_gain": 0,
+      "people_stryker": 96.03
+    },
+    {
+      "cycle": 2,
+      "pass": "rw-009c-payroll-stryker",
+      "composite": 90,
+      "composite_capped_by_floor": 90,
+      "marginal_gain": 0,
+      "payroll_stryker": 82.94
+    }
+  ],
+  "marginal_gain_last_cycle": 0,
+  "convergence_threshold": 3,
+  "re_entry_phase": null,
+  "exit_reason": "gate3_confirmed_deployed_local",
+  "gate_status": {
+    "gate_0": "confirmed",
+    "gate_1": "confirmed",
+    "gate_2": "confirmed",
+    "gate_3": "confirmed"
+  },
+  "parked_cycle1_risks": [],
+  "final_package": "FINAL/",
+  "notes": [
+    "Gate 3 confirmed; local deploy live.",
+    "RW-009b people Stryker 96.03% done; RW-009c payroll/TDS 82.94% done.",
+    "Optional RW-009d filings generators; F-013b VoiceOver; ZAP residual."
+  ],
+  "deployment_status": "context/release/deployment_status.json"
+}

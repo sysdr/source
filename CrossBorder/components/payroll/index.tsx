@@ -124,8 +124,8 @@ const PayrollEngine: React.FC = () => {
 
   // ── Callbacks passed to sub-components ────────────────────────────────────
 
-  const handleUpsertEmployee = useCallback((emp: Employee) => {
-    upsertEmployeeMutation.mutate(emp);
+  const handleUpsertEmployee = useCallback(async (emp: Employee) => {
+    await upsertEmployeeMutation.mutateAsync(emp);
   }, [upsertEmployeeMutation]);
 
   const handleDeleteEmployee = useCallback((id: string) => {

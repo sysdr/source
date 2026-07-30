@@ -34,6 +34,8 @@ import { formatUserError } from '../services/asyncOperation';
 import { formatAmountInDisplay, getBaseCurrency, getAmountInBase } from '../services/currencyService';
 import { useDisplayCurrency } from '../contexts/DisplayCurrencyContext';
 import { Transaction } from '../types';
+import { isStripeServerSyncEnabled } from '../services/featureFlags';
+import { migrateLegacyStripeTransactionIds } from '../services/migrateStripeTransactionIds';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -338,6 +340,10 @@ const SyncDataScreen: React.FC = () => {
    */
   const handleServerStripeToSqlite = async () => {
     if (isSyncingAll || syncingAccountId !== null || isServerSyncing) return;
+    if (!isStripeServerSyncEnabled()) {
+      setError('Server Stripe sync is disabled (ff_stripe_server_sync).');
+      return;
+    }
     if (!config.apiKey?.startsWith('sk_')) {
       setError('Configure Stripe in Revenue & Ingestion first.');
       return;
@@ -345,6 +351,7 @@ const SyncDataScreen: React.FC = () => {
     setIsServerSyncing(true);
     setError(null);
     try {
+      migrateLegacyStripeTransactionIds();
       const orgId = getActiveOrgId() ?? 'default';
       const result = await api.stripeSqliteSync({
         orgId,
@@ -364,6 +371,7 @@ const SyncDataScreen: React.FC = () => {
       }
       clearStripeSyncCursors();
       await reloadLedgerFromSqlite(orgId);
+      migrateLegacyStripeTransactionIds();
       loadData();
     } catch (e) {
       setError((e as Error).message || 'Server Stripe sync failed');
@@ -613,7 +621,7 @@ const SyncDataScreen: React.FC = () => {
         </div>
       )}
 
-      {hasStripe && (
+      {hasStripe && isStripeServerSyncEnabled() && (
         <div className="card" style={{ padding: '16px 20px', borderLeft: '4px solid var(--brand-600)' }}>
           <p style={{ margin: 0, fontWeight: 800, fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-primary)' }}>
             Direct SQLite import (fixes missing / inconsistent Stripe rows)
@@ -621,6 +629,7 @@ const SyncDataScreen: React.FC = () => {
           <p style={{ margin: '8px 0 12px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
             Deletes existing Stripe rows in the database, re-fetches all charges on the API server (Frankfurter FX, same shape as the app), writes into SQLite, then reloads this tab from the server. Ensure the API is running. If you set{' '}
             <code style={{ fontSize: 11 }}>SUEZ_API_KEY</code> on the server, add <code style={{ fontSize: 11 }}>VITE_SUEZ_API_KEY</code> with the same value in <code style={{ fontSize: 11 }}>.env</code>.
+            Also migrates legacy browser ids <code style={{ fontSize: 11 }}>ch_*</code> → <code style={{ fontSize: 11 }}>stripe_ch_*</code> (ADR-003).
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button

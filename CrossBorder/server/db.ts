@@ -870,19 +870,53 @@ export interface StripeEventRow {
   payload: string;
   received_at: string;
   processed_at: string | null;
+  process_error: string | null;
 }
 
-export function insertStripeEventIfNew(params: {
+/** Expand/contract: add process_error for poison-event diagnosis (ADR-003). */
+try {
+  db.exec(`ALTER TABLE stripe_events ADD COLUMN process_error TEXT`);
+} catch {
+  /* column already exists */
+}
+
+/**
+ * Claim an event for processing.
+ * - new: inserted with processed_at NULL
+ * - duplicate: already successfully processed
+ * - retry: exists but not yet processed (normalize previously failed)
+ */
+export function claimStripeEvent(params: {
   eventId: string;
   orgId: string;
   eventType: string;
   idempotencyKey?: string | null;
   payload: unknown;
-}): { inserted: boolean } {
-  const info = db.prepare(`
-    INSERT OR IGNORE INTO stripe_events
-      (event_id, org_id, event_type, idempotency_key, payload, processed_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+}): { status: 'new' | 'duplicate' | 'retry' } {
+  const existing = db.prepare(`
+    SELECT event_id, processed_at FROM stripe_events WHERE event_id = ?
+  `).get(params.eventId) as { event_id: string; processed_at: string | null } | undefined;
+
+  if (existing) {
+    if (existing.processed_at) return { status: 'duplicate' };
+    db.prepare(`
+      UPDATE stripe_events
+      SET org_id = ?, event_type = ?, idempotency_key = ?, payload = ?, process_error = NULL
+      WHERE event_id = ?
+    `).run(
+      params.orgId,
+      params.eventType,
+      params.idempotencyKey ?? null,
+      JSON.stringify(params.payload),
+      params.eventId,
+    );
+    return { status: 'retry' };
+  }
+
+  db.prepare(`
+    INSERT INTO stripe_events
+      (event_id, org_id, event_type, idempotency_key, payload, processed_at, process_error)
+    VALUES (?, ?, ?, ?, ?, NULL, NULL)
   `).run(
     params.eventId,
     params.orgId,
@@ -890,13 +924,41 @@ export function insertStripeEventIfNew(params: {
     params.idempotencyKey ?? null,
     JSON.stringify(params.payload),
   );
-  return { inserted: info.changes > 0 };
+  return { status: 'new' };
+}
+
+/** @deprecated Prefer claimStripeEvent — kept for callers that only need insert-or-ignore. */
+export function insertStripeEventIfNew(params: {
+  eventId: string;
+  orgId: string;
+  eventType: string;
+  idempotencyKey?: string | null;
+  payload: unknown;
+}): { inserted: boolean } {
+  const claim = claimStripeEvent(params);
+  return { inserted: claim.status === 'new' };
+}
+
+export function markStripeEventProcessed(eventId: string): void {
+  db.prepare(`
+    UPDATE stripe_events
+    SET processed_at = datetime('now'), process_error = NULL
+    WHERE event_id = ?
+  `).run(eventId);
+}
+
+export function markStripeEventFailed(eventId: string, error: string): void {
+  db.prepare(`
+    UPDATE stripe_events
+    SET processed_at = NULL, process_error = ?
+    WHERE event_id = ?
+  `).run(error.slice(0, 2000), eventId);
 }
 
 export function listStripeEvents(orgId: string, limit = 100): StripeEventRow[] {
   const safeLimit = Math.min(Math.max(limit, 1), 500);
   return db.prepare(`
-    SELECT event_id, org_id, event_type, idempotency_key, payload, received_at, processed_at
+    SELECT event_id, org_id, event_type, idempotency_key, payload, received_at, processed_at, process_error
     FROM stripe_events
     WHERE org_id = ?
     ORDER BY received_at DESC

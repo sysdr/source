@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "agent_id": "test-engineer",
+    "artifact": "mutation_report_payroll",
+    "config": "stryker.payroll.config.mjs",
+    "generated_at": "2026-07-30T15:32:30Z"
+  },
+  "mutate": [
+    "services/payrollCalculator.ts",
+    "services/tdsRules.ts",
+    "services/filings/disclaimer.ts"
+  ],
+  "files": {
+    "payrollCalculator.ts": {
+      "path": "services/payrollCalculator.ts",
+      "mutation_score": 80.67,
+      "killed": 338,
+      "survived": 73,
+      "no_coverage": 8,
+      "total": 419
+    },
+    "tdsRules.ts": {
+      "path": "services/tdsRules.ts",
+      "mutation_score": 87.65,
+      "killed": 149,
+      "survived": 19,
+      "no_coverage": 2,
+      "total": 170
+    },
+    "disclaimer.ts": {
+      "path": "services/filings/disclaimer.ts",
+      "mutation_score": 100.0,
+      "killed": 9,
+      "survived": 0,
+      "no_coverage": 0,
+      "total": 9
+    }
+  },
+  "totals": {
+    "killed": 496,
+    "survived": 92,
+    "noCoverage": 10,
+    "timeout": 0,
+    "total": 598
+  },
+  "mutation_score": 82.94,
+  "threshold_target": 80,
+  "meets_threshold": true,
+  "rw_009c": "done",
+  "note": "Payroll/TDS/disclaimer slice \u226580%. Optional: expand mutate set to filings generators (gstr1/gstr3b/form24q/26q/epfEcr/validateExport schemas).",
+  "html_report": "reports/mutation/mutation.html"
+}

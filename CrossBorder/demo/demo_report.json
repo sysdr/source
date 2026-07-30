@@ -6,14 +6,14 @@
   "environment": "demo/demo_environment.json",
   "standup": {
     "command": "npm run seed:db && npm run server & npm run demo:p0",
-    "verified_at": "2026-07-29T17:02:58.749Z",
+    "verified_at": "2026-07-30T14:36:30.837Z",
     "method": "api_engine_dry_run"
   },
   "flows": [
     {
       "id": "consolidated_dashboard",
       "result": "passed",
-      "duration_ms": 5,
+      "duration_ms": 3,
       "steps": [
         {
           "step": "A1 consolidated entities",
@@ -30,7 +30,7 @@
     {
       "id": "oidar_export_classification",
       "result": "passed",
-      "duration_ms": 3,
+      "duration_ms": 2,
       "steps": [
         {
           "step": "B1 export/domestic classes present",
@@ -43,7 +43,7 @@
     {
       "id": "filing_ready_export",
       "result": "passed",
-      "duration_ms": 8,
+      "duration_ms": 5,
       "steps": [
         {
           "step": "C2 GSTR-1 schema validate",
@@ -75,5 +75,5 @@
       "result": "passed"
     }
   ],
-  "updated_at": "2026-07-29T17:02:58.749Z"
+  "updated_at": "2026-07-30T14:36:30.837Z"
 }

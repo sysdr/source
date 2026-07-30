@@ -10,12 +10,43 @@ import Navigation from '../components/Navigation';
 import AsyncStatusBanner from '../components/AsyncStatusBanner';
 import DesktopOnlyGate from '../components/DesktopOnlyGate';
 import AccessBanner from '../components/AccessBanner';
+import { EmployeeHome } from '../components/employee/EmployeePortal';
 import { IDLE_ASYNC_STATE } from './asyncOperation';
 
 vi.mock('./apiClient', () => ({
   getAccessRole: () => 'accountant',
   getOrCreateWriterSessionId: () => 'test-session',
 }));
+
+vi.mock('./sessionAuth', () => ({
+  getAppSession: () => ({
+    role: 'employee',
+    displayName: 'Alex',
+    email: 'alex@example.com',
+    employeeId: 'E-A11Y',
+    orgId: 'org-a11y',
+    loggedInAt: new Date().toISOString(),
+  }),
+}));
+
+vi.mock('./storageService', async () => {
+  const actual = await vi.importActual<typeof import('./storageService')>('./storageService');
+  return {
+    ...actual,
+    getEmployees: () => [{
+      id: 'E-A11Y',
+      name: 'Alex Portal',
+      designation: 'Engineer',
+      ctc: 1200000,
+      doj: '2024-01-15',
+      status: 'Active',
+      email: 'alex@example.com',
+      documents: { pan: true, aadhaar: false, contract: true },
+    }],
+    getLeaveRequests: () => [],
+    getPayrollRuns: () => [],
+  };
+});
 
 const AXE_OPTS = {
   rules: {
@@ -77,9 +108,15 @@ describe.sequential('axe accessibility (REQ-069)', () => {
     const results = await axe(container, AXE_OPTS);
     expect(seriousOrCritical(results)).toEqual([]);
   }, 15_000);
+
+  it('EmployeeHome main landmark has no serious/critical axe violations', async () => {
+    const { container } = render(<EmployeeHome onNavigate={() => {}} />);
+    const results = await axe(container, AXE_OPTS);
+    expect(seriousOrCritical(results)).toEqual([]);
+  }, 15_000);
 });
 
-describe('keyboard traversal smoke (REQ-069)', () => {
+describe('keyboard traversal smoke (REQ-069 / F-013)', () => {
   it('Navigation tabs are keyboard-activatable buttons', () => {
     const { getByRole } = render(
       <Navigation activeTab="dashboard" setActiveTab={() => {}} />,
@@ -88,5 +125,12 @@ describe('keyboard traversal smoke (REQ-069)', () => {
     expect(dash.tagName).toBe('BUTTON');
     dash.focus();
     expect(document.activeElement).toBe(dash);
+  });
+
+  it('EmployeeHome quick actions expose accessible names for SR', () => {
+    const { getByRole } = render(<EmployeeHome onNavigate={() => {}} />);
+    expect(getByRole('main')).toBeTruthy();
+    expect(getByRole('button', { name: /My profile/i })).toBeTruthy();
+    expect(getByRole('navigation', { name: /Employee quick actions/i })).toBeTruthy();
   });
 });

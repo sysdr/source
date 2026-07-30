@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "artifact": "gate_3_confirmation",
+    "version": "1.0.0",
+    "confirmed_at": "2026-07-30T14:35:00Z",
+    "confirmed_by": "human",
+    "agent_id": "orchestrator",
+    "release": "0.2.0"
+  },
+  "decision": "approve",
+  "scorecard_composite": 90,
+  "floors_met": true,
+  "exceptions_acknowledged": [
+    {
+      "id": "RW-009b",
+      "risk": "People-scoped Stryker 55.63% < 80%; mutation-kill proxies 10/10 used as floor evidence",
+      "acknowledged": true
+    },
+    {
+      "id": "F-013b",
+      "risk": "VoiceOver full-shell recording not captured",
+      "acknowledged": true
+    },
+    {
+      "id": "RW-010-residual",
+      "risk": "External ZAP against dedicated staging not run (lightweight API DAST pass)",
+      "acknowledged": true
+    }
+  ],
+  "deployment_scope": "local_production_like",
+  "deployment_scope_note": "No public DNS / cloud / package publish. Gate 3 unlocks local production build, verified backup, smoke, and progressive flag plan only.",
+  "triggers": ["deploy"]
+}

@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "agent_id": "system-architect",
+    "artifact": "stripe_integration",
+    "version": "1.0.0",
+    "adr": "ADR-003"
+  },
+  "canonical_transaction_id": "stripe_<chargeId>",
+  "endpoints": {
+    "POST /api/stripe/webhook": {
+      "modes": ["stripe_signature", "legacy_json_shim"],
+      "events": [
+        "charge.succeeded",
+        "payment_intent.succeeded",
+        "charge.refunded",
+        "customer.subscription.updated"
+      ],
+      "flag": "FF_STRIPE_WEBHOOK_INGEST"
+    },
+    "POST /api/stripe/sqlite-sync": {
+      "auth": "SUEZ_API_KEY when set",
+      "flag": "ff_stripe_server_sync"
+    },
+    "GET /api/stripe/events": {
+      "auth": "SUEZ_API_KEY when set"
+    }
+  },
+  "secrets": [
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_WEBHOOK_ORG_ID",
+    "STRIPE_WEBHOOK_BASE_CURRENCY"
+  ],
+  "failure_semantics": {
+    "signature_fail": 400,
+    "normalize_fail": "422 + process_error + retryable",
+    "duplicate_processed": "200 duplicate"
+  },
+  "requirements": ["REQ-044", "REQ-078", "REQ-077", "REQ-066", "REQ-006"],
+  "deferred": [
+    "secrets_manager",
+    "connect_oauth",
+    "payout_object_recon_REQ-058"
+  ]
+}

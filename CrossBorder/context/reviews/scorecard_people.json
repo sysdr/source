@@ -1,22 +1,62 @@
-{
-  "meta": { "agent_id": "scorecard", "cycle": 2, "slice": "people", "pass": "portal-amplify" },
-  "dimensions": {
-    "correctness": { "score": 90, "floor": 90, "below_floor": false, "note": "Attendance + self-service + displayPii tests; Cycle1 Stryker still pending (parked)" },
-    "domain_fidelity": { "score": 91, "floor": 85, "below_floor": false },
-    "experience": { "score": 84, "floor": 75, "below_floor": false, "note": "Employee portal + editable profile/bank" },
-    "reliability": { "score": 90, "floor": 85, "below_floor": false, "note": "Leave + profile persist to SQLite" },
-    "performance": { "score": 90, "floor": 80, "below_floor": false },
-    "security_privacy": { "score": 90, "floor": 95, "below_floor": true, "note": "People UI mask done; Cycle1 DAST still parked — floor unmet" },
-    "accessibility": { "score": 84, "floor": 90, "below_floor": true, "note": "RW-P-005 open; Cycle1 SR audit parked" },
-    "operability": { "score": 86, "floor": 75, "below_floor": false }
-  },
-  "composite": 89,
-  "composite_capped_by_floor": 86,
-  "marginal_gain_vs_prior_people_pass": 2,
-  "top_leverage": [
-    "RW-P-003 DAST against staging",
-    "RW-P-005 employee portal a11y / SR",
-    "Stryker mutation on payroll slice"
-  ],
-  "gate3_blocker": "security_privacy and accessibility floors still capped by parked Cycle1 items"
-}
+{
+  "meta": {
+    "agent_id": "scorecard",
+    "cycle": 2,
+    "pass": "rw-009c-payroll-stryker"
+  },
+  "dimensions": {
+    "correctness": {
+      "score": 95,
+      "floor": 90,
+      "below_floor": false,
+      "note": "People Stryker 96.03%; payroll/TDS Stryker 82.94%; mutation-kill 10/10"
+    },
+    "domain_fidelity": {
+      "score": 91,
+      "floor": 85,
+      "below_floor": false
+    },
+    "experience": {
+      "score": 86,
+      "floor": 75,
+      "below_floor": false,
+      "note": "Demo screenshots A\u2013E 10/10"
+    },
+    "reliability": {
+      "score": 90,
+      "floor": 85,
+      "below_floor": false
+    },
+    "performance": {
+      "score": 90,
+      "floor": 80,
+      "below_floor": false
+    },
+    "security_privacy": {
+      "score": 95,
+      "floor": 95,
+      "below_floor": false
+    },
+    "accessibility": {
+      "score": 91,
+      "floor": 90,
+      "below_floor": false
+    },
+    "operability": {
+      "score": 86,
+      "floor": 75,
+      "below_floor": false
+    }
+  },
+  "composite": 90,
+  "composite_capped_by_floor": 90,
+  "marginal_gain_vs_prior": 0,
+  "top_leverage": [
+    "Expand Stryker to filings generators (RW-009d)",
+    "VoiceOver recording of owner shell (F-013b)",
+    "Staging ZAP (RW-010 residual)"
+  ],
+  "gate3_blocker": null,
+  "gate3_ready": true,
+  "gate3_confirmed": true
+}

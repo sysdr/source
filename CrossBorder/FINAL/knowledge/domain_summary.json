@@ -1,0 +1,134 @@
+{
+  "meta": {
+    "agent_id": "domain-expert",
+    "phase": "knowledge",
+    "cycle": 1,
+    "generated_at": "2026-07-29T08:30:00Z"
+  },
+
+  "domain_boundaries": {
+    "description": "Cross-border financial operations for Indian founders with US subsidiaries (India LLP parent + Delaware C-Corp child)",
+    "corridors": ["India-US (primary)", "US-India (intercompany repatriation)"],
+    "currencies": ["INR", "USD"],
+    "settlement_rails": {
+      "implemented": ["Stripe (US card/ACH collections)"],
+      "planned": ["Mercury Bank (US banking)", "Lemon Squeezy (MoR for Indian subscribers)"],
+      "gap": ["Indian bank feeds", "SWIFT/wire matching for FIRC", "UPI/NEFT/RTGS"]
+    },
+    "scope_boundary": "Single-org financial OS covering accounting, payroll, tax, compliance, and transfer pricing for a two-entity India-US structure. NOT a general multi-currency ERP."
+  },
+
+  "actor_map": [
+    {"actor": "Founder/Partner", "role": "Primary operator. Runs payroll, manages ledger, files compliance, approves transfers.", "system_touchpoints": ["All modules"]},
+    {"actor": "CA/Accountant (external)", "role": "Consumes filing-ready exports (GSTR, 24Q, 26Q, Form 5472). Needs schema-compliant data.", "system_touchpoints": ["Compliance Hub exports", "Invite flow (not implemented)"]},
+    {"actor": "Employee", "role": "Receives salary slips, documents. Passive — no login.", "system_touchpoints": ["Payroll output", "Document vault"]},
+    {"actor": "Stripe", "role": "Revenue source of truth for US billing. Live API sync.", "system_touchpoints": ["Revenue Ingestion"]},
+    {"actor": "Mercury Bank", "role": "US banking partner (partial integration).", "system_touchpoints": ["Bank feed (planned)"]},
+    {"actor": "Lemon Squeezy", "role": "MoR for Indian subscribers (planned).", "system_touchpoints": ["Revenue Ingestion (planned)"]},
+    {"actor": "GSTN / Income Tax Portal", "role": "Indian regulatory filing targets. System must produce machine-readable uploads.", "system_touchpoints": ["GST Center", "Payroll TDS exports"]},
+    {"actor": "IRS", "role": "US regulatory filing target (Form 5472, 1120).", "system_touchpoints": ["Tax Engine", "Transfer Pricing"]},
+    {"actor": "RBI/FEMA", "role": "Cross-border regulatory authority for ODI/FIRC/SOFTEX.", "system_touchpoints": ["Compliance Hub (display only currently)"]}
+  ],
+
+  "regulatory_implementation_map": {
+    "india_gst": {
+      "GSTR-1_table_6A": {"status": "partial", "gap": "Export is generic CSV, not GSTN JSON schema", "ship_blocker": true},
+      "GSTR-3B": {"status": "partial", "gap": "ITC computed but draft is generic CSV", "ship_blocker": true},
+      "GSTR-9_annual": {"status": "missing", "ship_blocker": false},
+      "GST_offline_utility_JSON": {"status": "missing", "gap": "Exports CSV not GST schema", "ship_blocker": true},
+      "GST_LUT": {"status": "display_only", "gap": "Hardcoded expiry, no dynamic tracking", "ship_blocker": false}
+    },
+    "india_tds": {
+      "Form_24Q": {"status": "UI_only", "gap": "Button present, no CSV generation", "ship_blocker": true},
+      "Form_26Q": {"status": "UI_only", "gap": "Button present, no handler", "ship_blocker": true},
+      "Sec_194T": {"status": "implemented", "ship_blocker": false},
+      "Sec_40b": {"status": "implemented", "ship_blocker": false}
+    },
+    "india_labour": {
+      "EPF_ECR": {"status": "partial", "gap": "PF in salary calc but ECR JSON not implemented", "ship_blocker": true},
+      "ESI": {"status": "config_only", "gap": "No ESI calculation logic", "ship_blocker": false},
+      "Professional_Tax": {"status": "implemented", "ship_blocker": false}
+    },
+    "us_irs": {
+      "Form_5472": {"status": "referenced_only", "gap": "No form generation or transaction mapping", "ship_blocker": true},
+      "Transfer_pricing_arms_length": {"status": "implemented", "ship_blocker": false},
+      "Form_1120": {"status": "missing", "ship_blocker": false},
+      "Contractor_1099": {"status": "data_model_only", "gap": "types.ts has Contractor1099 but no UI or generation", "ship_blocker": false}
+    },
+    "cross_border": {
+      "OIDAR_GST": {"status": "implemented", "ship_blocker": false},
+      "ODI_reporting": {"status": "display_only", "gap": "Hardcoded, no UIN/APR logic", "ship_blocker": false},
+      "FIRC_tracking": {"status": "display_only", "gap": "Static text, no wire matching", "ship_blocker": true},
+      "DTAA_treaty": {"status": "data_model_only", "gap": "TaxTreaty type exists, no implementation", "ship_blocker": false}
+    }
+  },
+
+  "data_sensitivity_classification": [
+    {"data_class": "PAN", "sensitivity": "PII/financial_identifier", "handling": "Must encrypt at rest; mask in UI; audit access", "current_state": "Stored plain in localStorage/JSON"},
+    {"data_class": "Aadhaar", "sensitivity": "PII/biometric_identifier", "handling": "Must encrypt; mask to last 4; UIDAI masking rules apply", "current_state": "Stored plain in localStorage"},
+    {"data_class": "GSTIN/TAN/LLPIN/EIN", "sensitivity": "Business_identifier", "handling": "Encrypt at rest for EIN; others lower risk but still audit-logged", "current_state": "Stored plain"},
+    {"data_class": "Bank account + IFSC", "sensitivity": "Financial/PII", "handling": "Encrypt at rest; mask in UI", "current_state": "Stored plain in localStorage"},
+    {"data_class": "Salary/CTC data", "sensitivity": "Financial/PII", "handling": "Access-controlled; encrypt at rest", "current_state": "Stored plain"},
+    {"data_class": "Stripe API keys", "sensitivity": "Secret/credential", "handling": "Never in client code; env-only", "current_state": "In .env.local (OK) but no rotation mechanism"},
+    {"data_class": "Transaction amounts", "sensitivity": "Financial", "handling": "Audit trail required", "current_state": "Append-only ledger (good) but no formal audit log"}
+  ],
+
+  "known_failure_modes": [
+    {"mode": "Stale FX rate", "domain": "cross-border", "impact": "Incorrect INR/USD conversions in ledger and tax calculations", "mitigation": "Dynamic FX rate source with date-specific lookups"},
+    {"mode": "Schema mismatch in regulatory exports", "domain": "compliance", "impact": "Filing rejected by GSTN/IT portal; penalties", "mitigation": "Validate exports against official JSON/CSV schemas before download"},
+    {"mode": "localStorage data loss", "domain": "persistence", "impact": "All financial data lost on browser clear", "mitigation": "SQLite as system of record, not just hydration snapshot"},
+    {"mode": "Missing audit trail", "domain": "compliance", "impact": "Cannot prove transaction history during tax audit", "mitigation": "Immutable append-only log with timestamps and actor attribution"},
+    {"mode": "PII exposure in plain storage", "domain": "security", "impact": "PAN/Aadhaar/bank details exposed if device compromised", "mitigation": "Encrypt at rest, mask in UI, access logging"},
+    {"mode": "Single-user no-auth", "domain": "access_control", "impact": "Anyone with browser access sees all financial data", "mitigation": "Authentication layer with role-based access"},
+    {"mode": "Transfer pricing miscalculation", "domain": "tax", "impact": "IRS/CBDT arm's-length challenge; penalties", "mitigation": "Multiple TP methods (CUP, TNMM) with documentation and comparable analysis"},
+    {"mode": "Missed filing deadline", "domain": "compliance", "impact": "Late fees and interest", "mitigation": "Dynamic filing calendar with alerts derived from actual data readiness"}
+  ],
+
+  "requirement_taxonomy_seed": {
+    "business": [
+      "Consolidated cross-entity financial position view",
+      "Compliance status dashboard with dynamic (not hardcoded) status derivation",
+      "Transfer pricing documentation for arm's-length defense",
+      "Cost reduction vs. manual accountant/spreadsheet workflows"
+    ],
+    "functional": [
+      "Revenue classification (export/OIDAR/domestic) from transaction metadata",
+      "Batch payroll processing with TDS/PF/PT computation",
+      "Schema-compliant regulatory export generation (GSTR JSON, 24Q CSV, Form 5472)",
+      "General ledger with journal entries and double-entry validation",
+      "Filing calendar with deadline tracking and data-readiness checks"
+    ],
+    "non_functional": [
+      "Data encryption at rest for PII/financial identifiers",
+      "Immutable audit trail for all financial mutations",
+      "SQLite as authoritative system of record (not localStorage)",
+      "Schema validation for all regulatory exports before download",
+      "Backup and recovery (RTO/RPO targets needed)"
+    ],
+    "user": [
+      "Founder: single-screen payroll run with downloadable outputs",
+      "Founder: compliance hub showing what's due, what's ready, what's blocked",
+      "CA/Accountant: export filing-ready data in official schema formats",
+      "Admin: document issuance with batch capability"
+    ],
+    "external_interface": [
+      "Stripe API: transaction sync (implemented)",
+      "Mercury Bank API: bank feed sync (planned)",
+      "Lemon Squeezy API: MoR revenue sync (planned)",
+      "GSTN offline utility JSON format compliance",
+      "Income Tax e-filing portal CSV format compliance (24Q/26Q)",
+      "Dynamic FX rate API (not yet selected)"
+    ]
+  },
+
+  "domain_risk_matrix": [
+    {"risk": "Regulatory export schema non-compliance", "likelihood": "high", "impact": "high", "priority": "P0", "mitigation": "Validate against official schemas; test with portal sandbox"},
+    {"risk": "PII stored unencrypted in localStorage", "likelihood": "high", "impact": "high", "priority": "P0", "mitigation": "Migrate to encrypted SQLite; add access controls"},
+    {"risk": "localStorage data loss", "likelihood": "medium", "impact": "critical", "priority": "P0", "mitigation": "SQLite as SoR with backup strategy"},
+    {"risk": "Stale FX rate causing incorrect calculations", "likelihood": "high", "impact": "medium", "priority": "P1", "mitigation": "Dynamic FX rate provider"},
+    {"risk": "No authentication allows unauthorized access", "likelihood": "medium", "impact": "high", "priority": "P1", "mitigation": "Auth layer before any multi-user deployment"},
+    {"risk": "Transfer pricing challenge by tax authority", "likelihood": "low", "impact": "high", "priority": "P2", "mitigation": "Multiple TP methods with comparable analysis documentation"},
+    {"risk": "Missed filing deadlines", "likelihood": "medium", "impact": "medium", "priority": "P1", "mitigation": "Dynamic calendar with alerts"},
+    {"risk": "ESI miscalculation or omission", "likelihood": "low", "impact": "medium", "priority": "P2", "mitigation": "Implement ESI logic when employee count reaches threshold"}
+  ]
+}

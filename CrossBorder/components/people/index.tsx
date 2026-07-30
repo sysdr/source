@@ -77,8 +77,8 @@ const PeopleModule: React.FC = () => {
     }
   }, [activeTab]);
 
-  const handleUpsert = useCallback((emp: Employee) => {
-    upsertMutation.mutate(emp);
+  const handleUpsert = useCallback(async (emp: Employee) => {
+    await upsertMutation.mutateAsync(emp);
   }, [upsertMutation]);
 
   const handleDelete = useCallback((id: string) => {

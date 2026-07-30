@@ -4,7 +4,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/apiClient';
-import { getEmployees, setEmployees, getActiveOrgId } from '../services/storageService';
+import {
+  getEmployees,
+  setEmployees,
+  setEmployeeLocalOnly,
+  getActiveOrgId,
+} from '../services/storageService';
 import type { Employee } from '../types';
 
 export const empKeys = {
@@ -31,16 +36,22 @@ export function useUpsertEmployee() {
 
   return useMutation({
     mutationFn: async (employee: Employee) => {
-      // Update localStorage first (keeps existing list in sync)
-      const current = getEmployees();
-      const updated = current.some(e => e.id === employee.id)
-        ? current.map(e => e.id === employee.id ? employee : e)
-        : [...current, employee];
-      setEmployees(updated);
-      await api.upsertEmployee(orgId, employee);
+      // Local-only first — avoid bulk upsertEmployees (fails if any peer has bad PII).
+      setEmployeeLocalOnly(employee);
+      const ok = await api.upsertEmployee(orgId, employee);
+      if (!ok) {
+        throw new Error('Could not save employee to server');
+      }
+      return employee;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: empKeys.all(orgId) });
+    onSuccess: (employee) => {
+      qc.setQueryData<Employee[]>(empKeys.all(orgId), (prev) => {
+        const list = prev ?? getEmployees();
+        const exists = list.some((e) => e.id === employee.id);
+        return exists
+          ? list.map((e) => (e.id === employee.id ? employee : e))
+          : [...list, employee];
+      });
     },
   });
 }

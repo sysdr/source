@@ -35,6 +35,8 @@ import {
   syncToApi,
 } from './storageService';
 import { api } from './apiClient';
+import { STRIPE_API_VERSION, canonicalStripeTransactionId } from './stripeConstants';
+import { migrateLegacyStripeTransactionIds } from './migrateStripeTransactionIds';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -169,7 +171,7 @@ function buildStripeHeaders(
 ): HeadersInit {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
-    'Stripe-Version': '2024-06-20',
+    'Stripe-Version': STRIPE_API_VERSION,
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
@@ -389,7 +391,7 @@ async function mapChargeToTransaction(
         : 'Pending';
 
   return {
-    id: charge.id,
+    id: canonicalStripeTransactionId(charge.id),
     stripeChargeId: charge.id,
     stripeAccountId: accountId,
     lastSyncedAt: now,
@@ -790,6 +792,9 @@ export async function runStripeSyncForAccount(
     };
   }
 
+  // ADR-003: converge legacy browser ids before merge
+  migrateLegacyStripeTransactionIds();
+
   const revenue = getRevenueData();
   // Default start date: beginning of current financial year (Apr 1) rather than hardcoded past date
   const now = new Date();
@@ -860,16 +865,23 @@ export async function runStripeSyncForAccount(
     // We use a Map keyed by stripeChargeId for O(1) dedup; the freshly-fetched
     // version wins so status changes (pending→completed, etc.) are captured.
     const merged = new Map<string, Transaction>(
-      existingTransactions.map((t) => [t.stripeChargeId || t.id, t]),
+      existingTransactions.map((t) => [
+        t.stripeChargeId || canonicalStripeTransactionId(t.id),
+        t,
+      ]),
     );
     // Overlay: fresh data wins for all re-fetched charges
     for (const t of mapped) {
-      merged.set(t.stripeChargeId || t.id, t);
+      merged.set(t.stripeChargeId || canonicalStripeTransactionId(t.id), t);
     }
 
     // Truly new charges (not in previous ledger)
-    const existingIds = new Set(existingTransactions.map((t) => t.stripeChargeId || t.id));
-    const newTxns = mapped.filter((t) => !existingIds.has(t.stripeChargeId || t.id));
+    const existingIds = new Set(
+      existingTransactions.map((t) => t.stripeChargeId || canonicalStripeTransactionId(t.id)),
+    );
+    const newTxns = mapped.filter(
+      (t) => !existingIds.has(t.stripeChargeId || canonicalStripeTransactionId(t.id)),
+    );
 
     const byDate = Array.from(merged.values()).sort((a, b) => (b.date > a.date ? 1 : -1));
 

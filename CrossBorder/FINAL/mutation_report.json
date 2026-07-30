@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "artifact": "mutation_report",
+    "version": "1.2.0",
+    "agent_id": "test-engineer",
+    "cycle": 2,
+    "generated_at": "2026-07-30T14:12:00Z",
+    "rework_ids": ["RW-009", "RW-009b", "RW-003"]
+  },
+  "mode": "mutation_kill_proxy",
+  "full_stryker": "available via npm run test:mutation (often hangs locally)",
+  "modules": [
+    { "module": "decimalMath", "kill_proxy_pass": true },
+    { "module": "onboardingValidation", "kill_proxy_pass": true },
+    { "module": "consolidatedPosition", "kill_proxy_pass": true },
+    { "module": "retentionPolicy", "kill_proxy_pass": true },
+    { "module": "tdsRules/ESI", "kill_proxy_pass": true },
+    { "module": "tdsRules/vendorTds", "kill_proxy_pass": true },
+    { "module": "payrollCalculator/PF-PT", "kill_proxy_pass": true },
+    { "module": "payrollCalculator/TDS-new", "kill_proxy_pass": true },
+    { "module": "displayPii", "kill_proxy_pass": true },
+    { "module": "employeeLifecycle", "kill_proxy_pass": true }
+  ],
+  "summary": {
+    "kill_checks": 10,
+    "passed": 10,
+    "estimated_slice_strength": "high for payroll/TDS/people/math; full Stryker ≥80% still optional residual"
+  },
+  "gate3": {
+    "proxy_green": true,
+    "full_stryker_pending": true
+  }
+}

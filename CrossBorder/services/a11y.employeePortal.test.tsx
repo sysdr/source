@@ -149,11 +149,30 @@ describe('employee portal keyboard smoke (RW-P-005)', () => {
     expect(document.activeElement).toBe(profile);
   });
 
+  it('home exposes a main landmark for screen readers', () => {
+    render(<EmployeeHome onNavigate={() => {}} />);
+    expect(screen.getByRole('main')).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: /Employee quick actions/i })).toBeTruthy();
+  });
+
   it('leave form controls are labelled', () => {
     render(<EmployeeLeaveSelf />);
     expect(screen.getByLabelText(/^Type$/i)).toBeTruthy();
     expect(screen.getByLabelText(/^From$/i)).toBeTruthy();
     expect(screen.getByLabelText(/^To$/i)).toBeTruthy();
     expect(screen.getByLabelText(/^Reason$/i)).toBeTruthy();
+  });
+
+  it('profile validation errors are announced as alerts', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    render(<EmployeeProfileSelf />);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Alex Portal')).toBeTruthy();
+    });
+    const name = screen.getByLabelText(/^Full name$/i);
+    await user.clear(name);
+    await user.click(screen.getByRole('button', { name: /Save profile/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Name is required/i);
   });
 });

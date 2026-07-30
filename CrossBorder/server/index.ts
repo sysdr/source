@@ -44,7 +44,7 @@ import {
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
   upsertInvite, getInviteByToken, listInvites, updateInviteStatus, deleteInvite,
-  insertStripeEventIfNew, listStripeEvents,
+  listStripeEvents,
   getAllOrgIds,
   checkpointDatabase,
 } from './db.js';
@@ -52,11 +52,13 @@ import {
   TransactionSchema, TransactionUpdateSchema,
   EmployeeSchema, EmployeeUpdateSchema,
   PayrollRunSchema, InvoiceSchema,
-  validate, validateArray,
+  validate, validateArray, parseWithSchema,
 } from './schemas.js';
 import { reconcileOrg } from './reconciliation.js';
 import { buildThreeWayReconciliation, type Gstr2bClaim } from '../services/threeWayReconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
+import { processStripeWebhookEvent, type StripeWebhookEvent } from './stripeWebhookHandler.js';
+import { verifyStripeWebhookSignature } from './stripeWebhookCrypto.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
 import {
   buildMagicLoginEmail,
@@ -68,6 +70,10 @@ import {
 } from './magicAuth.js';
 import { rebuildKvFromDomain } from './rebuildKv.js';
 import { resolvePublicAppBaseUrl } from './appBaseUrl.js';
+import {
+  findDuplicateEmployee,
+  mergeEmployeeRecords,
+} from '../services/employeeDuplicateMerge.js';
 import {
   decryptString,
   decryptEmployeePII,
@@ -86,7 +92,6 @@ import {
   listBackups,
   verifyBackup,
 } from './backup.js';
-import { normalizeStripeObject } from './normalizeTransaction.js';
 import { runPayrollBatch, validatePayrollEmployees } from './payrollBatch.js';
 import {
   VENDOR_TDS_SECTIONS,
@@ -136,14 +141,6 @@ import { buildFilingReminderEmail, selectFilingReminders } from '../services/fil
 import type { CompanyProfile, Employee, FilingTask, OdiProfile, PayrollConfig } from '../types.js';
 
 const SMTP_ORG_KEY = 'suez_smtp_settings';
-
-type StripeWebhookEvent = {
-  id?: string;
-  type?: string;
-  data?: {
-    object?: Record<string, unknown>;
-  };
-};
 
 const PORT = Number(process.env.PORT) || 3001;
 /** Bind all interfaces so LAN Wi‑Fi clients can reach the API. Override with HOST=127.0.0.1 to lock local-only. */
@@ -272,26 +269,43 @@ function maybeDecryptOrgData(key: string, value: unknown): unknown {
 }
 
 function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return readRawBody(req).then((raw) => {
+    try {
+      return raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    } catch {
+      throw new Error('Invalid JSON');
+    }
+  });
+}
+
+function readRawBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = '';
     let rejected = false;
     req.on('data', (ch: Buffer | string) => {
       if (rejected) return;
-      body += ch.toString();
+      body += typeof ch === 'string' ? ch : ch.toString('utf8');
       if (Buffer.byteLength(body, 'utf8') > getMaxBodyBytes()) {
         rejected = true;
         reject(new Error('Payload too large'));
       }
     });
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) as Record<string, unknown> : {});
-      } catch {
-        reject(new Error('Invalid JSON'));
-      }
-    });
+    req.on('end', () => resolve(body));
     req.on('error', reject);
   });
+}
+
+function isStripeWebhookIngestEnabled(): boolean {
+  const raw = process.env.FF_STRIPE_WEBHOOK_INGEST;
+  if (raw === 'false' || raw === '0') return false;
+  return true;
+}
+
+function allowLegacyStripeWebhook(req: http.IncomingMessage): boolean {
+  const suezKey = getSuezApiKey();
+  if (suezKey) return getAuth(req) === suezKey;
+  // Without SUEZ_API_KEY, legacy shim is local/test only.
+  return process.env.NODE_ENV !== 'production';
 }
 
 function getAuth(req: http.IncomingMessage): string | null {
@@ -362,9 +376,20 @@ function isRateLimited(req: http.IncomingMessage): boolean {
   return false;
 }
 
+function securityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+  };
+}
+
 function respond(req: http.IncomingMessage, res: http.ServerResponse, status: number, data: unknown) {
   const headers = {
     'Content-Type': 'application/json',
+    ...securityHeaders(),
     ...corsHeaders(req),
   };
   res.writeHead(status, headers);
@@ -379,6 +404,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
+      ...securityHeaders(),
       ...corsHeaders(req),
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers':
@@ -960,22 +986,31 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const orgId = typeof body.orgId === 'string' ? body.orgId : null;
       if (!orgId) { respond(req, res, 400, { error: 'orgId required' }); return; }
       if (Array.isArray(body.employees)) {
-        const validationErrors = validateArray(EmployeeSchema, body.employees);
+        const cleaned: Record<string, unknown>[] = [];
+        const validationErrors: Array<{ index: number; error: string }> = [];
+        for (let i = 0; i < body.employees.length; i++) {
+          const parsed = parseWithSchema(EmployeeSchema, body.employees[i]);
+          if (!parsed.ok) {
+            validationErrors.push({ index: i, error: parsed.error });
+            continue;
+          }
+          cleaned.push(parsed.data as Record<string, unknown>);
+        }
         if (validationErrors.length) {
           respond(req, res, 422, { error: 'Validation failed for some employees', validationErrors });
           return;
         }
-        const encryptedEmployees = (body.employees as Record<string, unknown>[]).map((e) => encryptEmployeePII(e));
+        const encryptedEmployees = cleaned.map((e) => encryptEmployeePII(e));
         bulkUpsertEmployees(orgId, encryptedEmployees);
         writeAuditEvent({
           req, url, method: req.method, orgId,
-          action: 'employees_bulk_upsert', result: 'success', details: { count: body.employees.length },
+          action: 'employees_bulk_upsert', result: 'success', details: { count: cleaned.length },
         });
-        respond(req, res, 200, { ok: true, count: body.employees.length });
+        respond(req, res, 200, { ok: true, count: cleaned.length });
       } else if (body.employee) {
-        const err = validate(EmployeeSchema, body.employee);
-        if (err) { respond(req, res, 422, { error: err }); return; }
-        upsertEmployee(orgId, encryptEmployeePII(body.employee as Record<string, unknown>));
+        const parsed = parseWithSchema(EmployeeSchema, body.employee);
+        if (!parsed.ok) { respond(req, res, 422, { error: parsed.error }); return; }
+        upsertEmployee(orgId, encryptEmployeePII(parsed.data as Record<string, unknown>));
         writeAuditEvent({ req, url, method: req.method, orgId, action: 'employee_upsert', result: 'success' });
         respond(req, res, 200, { ok: true });
       } else {
@@ -1017,15 +1052,15 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             ...((patch.documents as Record<string, unknown> | undefined) || {}),
           },
         };
-        const fullErr = validate(EmployeeSchema, merged);
-        if (fullErr) { respond(req, res, 422, { error: fullErr }); return; }
+        const parsed = parseWithSchema(EmployeeSchema, merged);
+        if (!parsed.ok) { respond(req, res, 422, { error: parsed.error }); return; }
 
-        upsertEmployee(orgId, encryptEmployeePII(merged));
+        upsertEmployee(orgId, encryptEmployeePII(parsed.data as Record<string, unknown>));
         writeAuditEvent({
           req, url, method: req.method, orgId,
           action: 'employee_update', result: 'success', details: { id: empId },
         });
-        respond(req, res, 200, { ok: true, employee: merged });
+        respond(req, res, 200, { ok: true, employee: parsed.data });
       } catch (err) { respond(req, res, 400, { error: (err as Error).message }); }
       return;
     }
@@ -1770,53 +1805,67 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     return;
   }
 
-  // POST /api/stripe/sqlite-sync — server-side Stripe → SQLite (no browser mapping).
-  // Auth: X-API-Key when SUEZ_API_KEY is set.
-  // Body: { orgId, baseCurrency, stripeOrgConfig, entireHistory?, startDate?, endDate?, purge? }
+  // POST /api/stripe/webhook — signed Stripe delivery or authenticated legacy JSON shim (REQ-078 / ADR-003).
   if (url === '/api/stripe/webhook' && req.method === 'POST') {
+    if (!isStripeWebhookIngestEnabled()) {
+      respond(req, res, 503, { error: 'Stripe webhook ingest disabled (FF_STRIPE_WEBHOOK_INGEST)' });
+      return;
+    }
     try {
-      const body = await parseBody(req);
-      const orgId = typeof body.orgId === 'string' ? body.orgId : 'default';
-      const event = body.event as StripeWebhookEvent | undefined;
-      const eventId = typeof event?.id === 'string' ? event.id : '';
-      const eventType = typeof event?.type === 'string' ? event.type : '';
-      if (!eventId || !eventType) {
-        respond(req, res, 400, { error: 'event.id and event.type required' });
-        return;
-      }
+      const signatureHeader = req.headers['stripe-signature'];
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+      let event: StripeWebhookEvent | undefined;
+      let orgId = 'default';
+      let idempotencyKey: string | null = null;
+      let baseCurrency: 'INR' | 'USD' = 'INR';
+      let accountId: string | null = null;
 
-      const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
-      const inserted = insertStripeEventIfNew({
-        eventId,
-        orgId,
-        eventType,
-        idempotencyKey,
-        payload: event,
-      });
-      if (!inserted.inserted) {
-        respond(req, res, 200, { ok: true, duplicate: true, eventId });
-        return;
-      }
-
-      // Canonicalize charge / payment_intent / refund events into ledger rows (REQ-078, T-016).
-      const obj = (event.data?.object || {}) as Record<string, unknown>;
-      const ingestable = eventType === 'charge.succeeded'
-        || eventType === 'payment_intent.succeeded'
-        || eventType === 'charge.refunded';
-      let normalizedId: string | undefined;
-      if (ingestable) {
-        const normalized = normalizeStripeObject(obj, {
-          webhookEventId: eventId,
-          eventType,
-          baseCurrency: body.baseCurrency === 'USD' ? 'USD' : 'INR',
+      if (typeof signatureHeader === 'string' && webhookSecret) {
+        const rawBody = await readRawBody(req);
+        const verified = verifyStripeWebhookSignature({
+          rawBody,
+          signatureHeader,
+          secret: webhookSecret,
         });
-        if (!normalized.ok) {
-          respond(req, res, 422, { error: normalized.error, eventId, eventType });
+        if (!verified.ok) {
+          respond(req, res, 400, { error: verified.error });
           return;
         }
-        upsertTransaction(orgId, normalized.transaction);
-        normalizedId = String(normalized.transaction.id);
+        const parsed = JSON.parse(rawBody) as StripeWebhookEvent;
+        event = parsed;
+        orgId = typeof qs.orgId === 'string' && qs.orgId
+          ? qs.orgId
+          : (process.env.STRIPE_WEBHOOK_ORG_ID || 'default');
+        accountId = typeof parsed.account === 'string' ? parsed.account : null;
+        baseCurrency = process.env.STRIPE_WEBHOOK_BASE_CURRENCY === 'USD' ? 'USD' : 'INR';
+      } else {
+        if (!allowLegacyStripeWebhook(req)) {
+          respond(req, res, 401, {
+            error: webhookSecret
+              ? 'Stripe-Signature required (or X-API-Key for legacy shim)'
+              : 'Unauthorized legacy Stripe webhook',
+          });
+          return;
+        }
+        const body = await parseBody(req);
+        orgId = typeof body.orgId === 'string' ? body.orgId : 'default';
+        event = body.event as StripeWebhookEvent | undefined;
+        idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
+        baseCurrency = body.baseCurrency === 'USD' ? 'USD' : 'INR';
       }
+
+      if (!event) {
+        respond(req, res, 400, { error: 'event required' });
+        return;
+      }
+
+      const result = processStripeWebhookEvent({
+        orgId,
+        event,
+        idempotencyKey,
+        baseCurrency,
+        accountId,
+      });
 
       writeAuditEvent({
         req,
@@ -1824,16 +1873,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         method: req.method,
         orgId,
         action: 'stripe_webhook_ingest',
-        result: 'success',
-        details: { eventId, eventType, duplicate: false, transactionId: normalizedId },
+        result: result.ok ? 'success' : 'error',
+        details: result.body,
       });
-      respond(req, res, 200, {
-        ok: true,
-        duplicate: false,
-        eventId,
-        ingested: ingestable,
-        transactionId: normalizedId,
-      });
+      respond(req, res, result.status, result.body);
     } catch (err) {
       respond(req, res, 500, { error: (err as Error).message });
     }
@@ -1855,6 +1898,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       idempotencyKey: row.idempotency_key,
       receivedAt: row.received_at,
       processedAt: row.processed_at,
+      processError: row.process_error,
     }));
     respond(req, res, 200, { ok: true, events });
     return;
@@ -1895,6 +1939,58 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         purge,
       });
       respond(req, res, result.ok ? 200 : 500, result);
+    } catch (err) {
+      respond(req, res, 500, { error: (err as Error).message });
+    }
+    return;
+  }
+
+  // POST /api/stripe/verify — live Stripe vs local ledger field check
+  if (url === '/api/stripe/verify' && req.method === 'POST') {
+    const suzeApiKey = getSuezApiKey();
+    if (suzeApiKey && getAuth(req) !== suzeApiKey) {
+      respond(req, res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const body = await parseBody(req);
+      const orgId = typeof body.orgId === 'string' ? body.orgId : null;
+      if (!orgId) {
+        respond(req, res, 400, { error: 'orgId required' });
+        return;
+      }
+      const { runStripeLocalVerification } = await import('./stripeLocalVerifyRun.js');
+      const report = await runStripeLocalVerification({
+        orgId,
+        days: typeof body.days === 'number' ? body.days : Number(body.days || 90),
+        entireHistory: body.entireHistory === true,
+        startDate: typeof body.startDate === 'string' ? body.startDate : undefined,
+        endDate: typeof body.endDate === 'string' ? body.endDate : undefined,
+        accountId: typeof body.accountId === 'string' ? body.accountId : undefined,
+        maxPagesPerAccount: typeof body.maxPagesPerAccount === 'number' ? body.maxPagesPerAccount : undefined,
+      });
+      const mismatches = report.rows.filter((r) => r.outcome === 'mismatch').slice(0, 100);
+      const missingLocal = report.rows.filter((r) => r.outcome === 'missing_local').slice(0, 100);
+      const missingStripe = report.rows.filter((r) => r.outcome === 'missing_stripe').slice(0, 100);
+      respond(req, res, 200, {
+        ok: report.mismatched === 0 && report.missingLocal === 0 && report.errors.length === 0,
+        summary: {
+          orgId: report.orgId,
+          comparedAt: report.comparedAt,
+          window: report.window,
+          accountsFetched: report.accountsFetched,
+          stripeChargeCount: report.stripeChargeCount,
+          localStripeCount: report.localStripeCount,
+          matched: report.matched,
+          mismatched: report.mismatched,
+          missingLocal: report.missingLocal,
+          missingStripe: report.missingStripe,
+          fetchErrors: report.errors,
+        },
+        mismatches,
+        missingLocal,
+        missingStripe,
+      });
     } catch (err) {
       respond(req, res, 500, { error: (err as Error).message });
     }
@@ -2873,7 +2969,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         let inviteMeta: Record<string, unknown> = {};
         try { inviteMeta = JSON.parse(row.data) as Record<string, unknown>; } catch { /* */ }
 
-        const employeeId = randomUUID();
         const docs = Array.isArray(profile.uploadedDocuments) ? profile.uploadedDocuments as { kind?: string }[] : [];
         const documents = {
           pan: Boolean(typeof profile.panNumber === 'string' && profile.panNumber.trim()),
@@ -2890,8 +2985,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           ? profile.ctc
           : (typeof inviteMeta.ctc === 'number' ? inviteMeta.ctc : 0);
         const ctc = rawCtc > 0 ? rawCtc : 1;
-        const employee = {
-          id: employeeId,
+        const panNumber = typeof profile.panNumber === 'string' ? profile.panNumber : undefined;
+        const onboardedViaInviteAt = new Date().toISOString();
+        const incoming = {
+          id: randomUUID(),
           name,
           email: row.email,
           designation,
@@ -2899,9 +2996,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           doj: typeof profile.doj === 'string' && profile.doj
             ? profile.doj
             : (typeof inviteMeta.doj === 'string' ? inviteMeta.doj : new Date().toISOString().slice(0, 10)),
-          status: 'Onboarding',
+          status: 'Onboarding' as const,
           documents,
-          panNumber: typeof profile.panNumber === 'string' ? profile.panNumber : undefined,
+          panNumber,
           aadhaarNumber: typeof profile.aadhaarNumber === 'string' ? profile.aadhaarNumber : undefined,
           uan: typeof profile.uan === 'string' ? profile.uan : undefined,
           esiNumber: typeof profile.esiNumber === 'string' ? profile.esiNumber : undefined,
@@ -2921,17 +3018,39 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             : (typeof inviteMeta.department === 'string' ? inviteMeta.department : undefined),
           taxRegime: typeof profile.taxRegime === 'string' ? profile.taxRegime : 'new',
           inviteId: row.id,
-          onboardedViaInviteAt: new Date().toISOString(),
+          onboardedViaInviteAt,
           uploadedDocuments: docs,
-        };
+        } as Employee;
+
+        // OQ-E-003: merge onto existing directory row when email / PAN / exact name match
+        const existingEmployees = getEmployees(row.org_id).map(
+          (e) => decryptEmployeePII(e) as Employee,
+        );
+        const dup = findDuplicateEmployee(existingEmployees, {
+          email: row.email,
+          name,
+          panNumber,
+        });
+        const employee = dup
+          ? mergeEmployeeRecords(dup.match, incoming)
+          : incoming;
+        const employeeId = employee.id;
 
         upsertEmployee(row.org_id, encryptEmployeePII(employee as Record<string, unknown>));
         updateInviteStatus(token, 'accepted', {
-          acceptedAt: new Date().toISOString(),
+          acceptedAt: onboardedViaInviteAt,
           employeeId,
+          mergedIntoExisting: Boolean(dup),
+          mergeReason: dup?.reason ?? null,
         });
 
-        respond(req, res, 200, { ok: true, employeeId, status: 'Onboarding' });
+        respond(req, res, 200, {
+          ok: true,
+          employeeId,
+          status: employee.status,
+          merged: Boolean(dup),
+          mergeReason: dup?.reason ?? null,
+        });
       } catch (err) {
         respond(req, res, 400, { error: (err as Error).message });
       }

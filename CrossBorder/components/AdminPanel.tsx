@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { CompanyProfile, VaultDocument, Employee } from '../types';
-import { getCompanyProfile, getPlatformRules, setPlatformRules, getModulePermissions, setModulePermissions, getOrganisationsList, getActiveOrgId, getLiveModeDataStatus, clearAllDataInLiveMode, getEmployees, updateEmployee, getManualUsdToInrRate, setManualUsdToInrRate, exportConfig, importConfig, type ConfigExportPayload, getUIState, setUIState, StorageKeys, addVaultDocument } from '../services/storageService';
+import { getCompanyProfile, getPlatformRules, setPlatformRules, getModulePermissions, setModulePermissions, getOrganisationsList, getActiveOrgId, getLiveModeDataStatus, clearAllDataInLiveMode, getEmployees, setEmployeeLocalOnly, getManualUsdToInrRate, setManualUsdToInrRate, exportConfig, importConfig, type ConfigExportPayload, getUIState, setUIState, StorageKeys, addVaultDocument } from '../services/storageService';
 import { loadDefaultOrganisationConfig } from '../services/defaultOrganisation';
 import { getTodayUsdToInrRate, fetchTodayUsdToInrRate } from '../services/currencyService';
+import { api } from '../services/apiClient';
 import AdminEmailInvites from './AdminEmailInvites';
 
 interface AdminPanelProps {
@@ -500,13 +501,35 @@ Authorized Signatory:
                       <input type="date" value={editForm.doj ?? ''} onChange={e => setEditForm({ ...editForm, doj: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs" />
                     </div>
                     <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">End date (resigned)</label>
+                      <input
+                        type="date"
+                        value={editForm.endDate ?? ''}
+                        onChange={e => setEditForm({ ...editForm, endDate: e.target.value })}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs"
+                      />
+                    </div>
+                    <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status</label>
-                      <select value={editForm.status ?? 'Active'} onChange={e => setEditForm({ ...editForm, status: e.target.value as Employee['status'] })} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs appearance-none">
+                      <select
+                        value={editForm.status ?? 'Active'}
+                        onChange={e => {
+                          const status = e.target.value as Employee['status'];
+                          setEditForm({
+                            ...editForm,
+                            status,
+                            endDate: status === 'Exited'
+                              ? (editForm.endDate || new Date().toISOString().split('T')[0])
+                              : editForm.endDate,
+                          });
+                        }}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none font-bold text-xs appearance-none"
+                      >
                         <option value="Active">Active</option>
                         <option value="Inactive">Inactive</option>
                         <option value="Onboarding">Onboarding</option>
                         <option value="Notice">Notice</option>
-                        <option value="Exited">Exited</option>
+                        <option value="Exited">Exited / Resigned</option>
                       </select>
                     </div>
                     <div className="col-span-2">
@@ -528,22 +551,32 @@ Authorized Signatory:
                     </div>
                   </div>
                   <button
-                    onClick={() => {
-                      if (editingEmployee.id && editForm.name && editForm.email) {
-                        updateEmployee(editingEmployee.id, {
-                          name: editForm.name,
-                          email: editForm.email,
-                          designation: editForm.designation ?? '',
-                          ctc: editForm.ctc ?? 0,
-                          doj: editForm.doj ?? new Date().toISOString().split('T')[0],
-                          status: editForm.status ?? 'Active',
-                          documents: editForm.documents ?? { pan: false, aadhaar: false, contract: false },
-                        });
-                        setEmployees(getEmployees());
-                        setEditingEmployee(null);
-                        setEditForm({});
-                        window.dispatchEvent(new Event('suez_data_updated'));
+                    onClick={async () => {
+                      if (!(editingEmployee.id && editForm.name && editForm.email)) return;
+                      const status = editForm.status ?? 'Active';
+                      const merged: Employee = {
+                        ...editingEmployee,
+                        name: editForm.name,
+                        email: editForm.email,
+                        designation: editForm.designation ?? '',
+                        ctc: editForm.ctc ?? 0,
+                        doj: editForm.doj ?? new Date().toISOString().split('T')[0],
+                        endDate: status === 'Exited'
+                          ? (editForm.endDate || new Date().toISOString().split('T')[0])
+                          : (editForm.endDate || undefined),
+                        status,
+                        documents: editForm.documents ?? { pan: false, aadhaar: false, contract: false },
+                      };
+                      setEmployeeLocalOnly(merged);
+                      try {
+                        await api.upsertEmployee(getActiveOrgId() ?? 'default', merged);
+                      } catch {
+                        /* local already saved; server may be offline */
                       }
+                      setEmployees(getEmployees());
+                      setEditingEmployee(null);
+                      setEditForm({});
+                      window.dispatchEvent(new Event('suez_data_updated'));
                     }}
                     className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl"
                   >

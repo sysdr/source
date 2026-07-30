@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "artifact": "demo_screenshots",
+    "rework_ids": [
+      "RW-008",
+      "RW-008b"
+    ],
+    "generated_at": "2026-07-30T14:11:53.961Z"
+  },
+  "results": [
+    {
+      "flow": "A",
+      "viewport": "desktop",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-a-dashboard-desktop.png",
+      "ok": true,
+      "tab": "Dashboard"
+    },
+    {
+      "flow": "B",
+      "viewport": "desktop",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-b-compliance-desktop.png",
+      "ok": true,
+      "tab": "Compliance Hub"
+    },
+    {
+      "flow": "C",
+      "viewport": "desktop",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-c-payroll-desktop.png",
+      "ok": false,
+      "tab": "Payroll & HR"
+    },
+    {
+      "flow": "D",
+      "viewport": "desktop",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-d-people-desktop.png",
+      "ok": true,
+      "tab": "People"
+    },
+    {
+      "flow": "E",
+      "viewport": "desktop",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-e-filing-desktop.png",
+      "ok": true,
+      "tab": "Filing Calendar"
+    },
+    {
+      "flow": "A",
+      "viewport": "tablet",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-a-dashboard-tablet.png",
+      "ok": true,
+      "tab": "Dashboard"
+    },
+    {
+      "flow": "B",
+      "viewport": "tablet",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-b-compliance-tablet.png",
+      "ok": true,
+      "tab": "Compliance Hub"
+    },
+    {
+      "flow": "C",
+      "viewport": "tablet",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-c-payroll-tablet.png",
+      "ok": false,
+      "tab": "Payroll & HR"
+    },
+    {
+      "flow": "D",
+      "viewport": "tablet",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-d-people-tablet.png",
+      "ok": true,
+      "tab": "People"
+    },
+    {
+      "flow": "E",
+      "viewport": "tablet",
+      "path": "/Users/sumedhshende/source/CrossBorder/demo/recordings/flow-e-filing-tablet.png",
+      "ok": true,
+      "tab": "Filing Calendar"
+    }
+  ],
+  "note": "Automated viewport captures for Flows A–E (desktop + tablet)."
+}

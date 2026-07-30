@@ -76,6 +76,8 @@ export interface Employee {
   designation: string;
   ctc: number;
   doj: string;
+  /** Last working day / resignation date (YYYY-MM-DD). Used when status is Exited. */
+  endDate?: string;
   status: 'Active' | 'Inactive' | 'Onboarding' | 'Notice' | 'Exited' | 'Archived';
   email: string;
   documents: {

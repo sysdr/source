@@ -9,8 +9,11 @@ import {
   deleteTransactionsByOrgAndSource,
 } from './db.js';
 import { classifyGstFromCountry } from './normalizeTransaction.js';
+import { STRIPE_API_VERSION } from '../services/stripeConstants.js';
 
-const STRIPE_VERSION = '2024-06-20';
+export { STRIPE_API_VERSION };
+
+const STRIPE_VERSION = STRIPE_API_VERSION;
 export const STRIPE_EARLIEST_CHARGE_TS = 1262304000;
 const MAX_CHARGE_LIST_PAGES = 500_000;
 const DEFAULT_USD_INR = 83.5;

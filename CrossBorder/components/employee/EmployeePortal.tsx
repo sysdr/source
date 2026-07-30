@@ -43,24 +43,24 @@ export const EmployeeHome: React.FC<{ onNavigate: (tab: string) => void }> = ({ 
   const runs = getPayrollRuns().filter((r) => r.employeeSlips.some((s) => s.employeeId === emp.id));
 
   return (
-    <div className="space-y-6">
+    <main className="space-y-6" aria-labelledby="emp-home-title">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900">Hi, {emp.name.split(' ')[0]}</h1>
+        <h1 id="emp-home-title" className="text-2xl font-bold text-slate-900">Hi, {emp.name.split(' ')[0]}</h1>
         <p className="text-sm text-slate-500 mt-1">
           Your employee workspace · signed in as {session?.email || emp.email}
         </p>
       </header>
-      <div className="grid sm:grid-cols-3 gap-4">
-        <Stat label="Status" value={emp.status} />
-        <Stat label="CTC" value={fmt(emp.ctc)} />
-        <Stat label="Payslips on file" value={String(runs.length)} />
+      <div className="grid sm:grid-cols-3 gap-4" role="list" aria-label="Employment summary">
+        <Stat label="Status" value={emp.status} asListItem />
+        <Stat label="CTC" value={fmt(emp.ctc)} asListItem />
+        <Stat label="Payslips on file" value={String(runs.length)} asListItem />
       </div>
-      <div className="grid sm:grid-cols-3 gap-3">
+      <nav className="grid sm:grid-cols-3 gap-3" aria-label="Employee quick actions">
         <QuickAction title="My profile" desc="Personal & salary bank account" onClick={() => onNavigate('emp-profile')} />
         <QuickAction title="Pay & slips" desc="Compensation and salary slips" onClick={() => onNavigate('emp-pay')} />
         <QuickAction title="Leave" desc={pendingLeaves ? `${pendingLeaves} pending` : 'Apply or track leave'} onClick={() => onNavigate('emp-leave')} />
-      </div>
-    </div>
+      </nav>
+    </main>
   );
 };
 
@@ -160,18 +160,18 @@ export const EmployeeProfileSelf: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <main className="space-y-6 max-w-3xl" aria-labelledby="emp-profile-title">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900">My profile</h1>
+        <h1 id="emp-profile-title" className="text-2xl font-bold text-slate-900">My profile</h1>
         <p className="text-sm text-slate-500 mt-1">
           Update contact and salary bank account details. HR owns title, pay, and employment status.
         </p>
       </header>
       {toast && (
-        <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">{toast}</p>
+        <p role="status" aria-live="polite" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">{toast}</p>
       )}
       {error && (
-        <p className="text-sm text-rose-800 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">{error}</p>
+        <p role="alert" aria-live="assertive" className="text-sm text-rose-800 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">{error}</p>
       )}
 
       <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-sm">
@@ -286,15 +286,15 @@ export const EmployeeProfileSelf: React.FC = () => {
         <p className="text-xs text-slate-400">Bank and personal changes sync to your company record when the server is available.</p>
       </div>
 
-      <section className="bg-white rounded-2xl border border-slate-200 p-6">
-        <h2 className="text-sm font-semibold text-slate-800 mb-3">Documents on file</h2>
+      <section className="bg-white rounded-2xl border border-slate-200 p-6" aria-labelledby="emp-docs-title">
+        <h2 id="emp-docs-title" className="text-sm font-semibold text-slate-800 mb-3">Documents on file</h2>
         <ul className="text-sm space-y-2">
           <li className={docs.pan ? 'text-emerald-700' : 'text-amber-700'}>PAN {docs.pan ? 'received' : 'pending'}</li>
           <li className={docs.aadhaar ? 'text-emerald-700' : 'text-amber-700'}>Aadhaar {docs.aadhaar ? 'received' : 'pending'}</li>
           <li className={docs.contract ? 'text-emerald-700' : 'text-amber-700'}>Contract {docs.contract ? 'received' : 'pending'}</li>
         </ul>
       </section>
-    </div>
+    </main>
   );
 };
 
@@ -343,11 +343,11 @@ export const EmployeePaySelf: React.FC<{ onNavigate?: (tab: string) => void }> =
     : '—';
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <h1 className="text-2xl font-bold text-slate-900">Pay & salary slips</h1>
-      <section className="bg-white rounded-2xl border border-slate-200 p-6">
+    <main className="space-y-6 max-w-4xl" aria-labelledby="emp-pay-title">
+      <h1 id="emp-pay-title" className="text-2xl font-bold text-slate-900">Pay & salary slips</h1>
+      <section className="bg-white rounded-2xl border border-slate-200 p-6" aria-labelledby="emp-pay-bank-title">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-          <h2 className="text-sm font-semibold text-slate-800">Salary credit bank account</h2>
+          <h2 id="emp-pay-bank-title" className="text-sm font-semibold text-slate-800">Salary credit bank account</h2>
           {onNavigate && (
             <button
               type="button"
@@ -389,15 +389,16 @@ export const EmployeePaySelf: React.FC<{ onNavigate?: (tab: string) => void }> =
           <h2 className="text-sm font-semibold text-slate-800">Salary slips</h2>
         </div>
         {mySlips.length === 0 ? (
-          <p className="p-8 text-sm text-slate-500 text-center">No processed slips yet.</p>
+          <p className="p-8 text-sm text-slate-500 text-center" role="status">No processed slips yet.</p>
         ) : (
           <table className="w-full text-sm">
+            <caption className="sr-only">Processed salary slips by period</caption>
             <thead className="bg-slate-50 text-left text-xs text-slate-500">
               <tr>
-                <th className="px-5 py-3">Period</th>
-                <th className="px-5 py-3 text-right">Gross</th>
-                <th className="px-5 py-3 text-right">Deductions</th>
-                <th className="px-5 py-3 text-right">Net</th>
+                <th scope="col" className="px-5 py-3">Period</th>
+                <th scope="col" className="px-5 py-3 text-right">Gross</th>
+                <th scope="col" className="px-5 py-3 text-right">Deductions</th>
+                <th scope="col" className="px-5 py-3 text-right">Net</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -413,7 +414,7 @@ export const EmployeePaySelf: React.FC<{ onNavigate?: (tab: string) => void }> =
           </table>
         )}
       </section>
-    </div>
+    </main>
   );
 };
 
@@ -471,16 +472,16 @@ export const EmployeeLeaveSelf: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <h1 className="text-2xl font-bold text-slate-900">Leave</h1>
+    <main className="space-y-6 max-w-3xl" aria-labelledby="emp-leave-title">
+      <h1 id="emp-leave-title" className="text-2xl font-bold text-slate-900">Leave</h1>
       {toast && (
-        <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">{toast}</p>
+        <p role="status" aria-live="polite" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">{toast}</p>
       )}
-      <section className="bg-white rounded-2xl border border-slate-200 p-5">
-        <h2 className="text-sm font-semibold text-slate-800 mb-3">Balances ({year})</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <section className="bg-white rounded-2xl border border-slate-200 p-5" aria-labelledby="emp-leave-balances-title">
+        <h2 id="emp-leave-balances-title" className="text-sm font-semibold text-slate-800 mb-3">Balances ({year})</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="list" aria-label={`Leave balances for ${year}`}>
           {Object.entries(balance.balances).map(([type, b]) => (
-            <div key={type} className="rounded-xl bg-slate-50 p-3">
+            <div key={type} className="rounded-xl bg-slate-50 p-3" role="listitem" aria-label={`${type}: ${b.remaining} of ${b.total} remaining`}>
               <p className="text-[11px] font-semibold text-slate-500">{type}</p>
               <p className="text-lg font-bold text-slate-900">{b.remaining}<span className="text-xs font-medium text-slate-400"> / {b.total}</span></p>
             </div>
@@ -488,8 +489,8 @@ export const EmployeeLeaveSelf: React.FC = () => {
         </div>
       </section>
 
-      <section className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-800">Apply for leave</h2>
+      <section className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3" aria-labelledby="emp-leave-apply-title">
+        <h2 id="emp-leave-apply-title" className="text-sm font-semibold text-slate-800">Apply for leave</h2>
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="text-xs font-medium text-slate-600">
             Type
@@ -528,12 +529,12 @@ export const EmployeeLeaveSelf: React.FC = () => {
         </button>
       </section>
 
-      <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden" aria-labelledby="emp-leave-requests-title">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-semibold text-slate-800">My requests</h2>
+          <h2 id="emp-leave-requests-title" className="text-sm font-semibold text-slate-800">My requests</h2>
         </div>
         {mine.length === 0 ? (
-          <p className="p-8 text-sm text-slate-500 text-center">No leave requests yet.</p>
+          <p className="p-8 text-sm text-slate-500 text-center" role="status">No leave requests yet.</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {mine.map((lr) => (
@@ -543,7 +544,12 @@ export const EmployeeLeaveSelf: React.FC = () => {
                   <p className="text-xs text-slate-500">{lr.fromDate} → {lr.toDate} · {lr.status}</p>
                 </div>
                 {lr.status === 'Pending' && (
-                  <button type="button" onClick={() => cancel(lr.id)} className="text-xs font-semibold text-rose-600">
+                  <button
+                    type="button"
+                    onClick={() => cancel(lr.id)}
+                    aria-label={`Cancel ${lr.type} leave from ${lr.fromDate} to ${lr.toDate}`}
+                    className="text-xs font-semibold text-rose-600"
+                  >
                     Cancel
                   </button>
                 )}
@@ -552,21 +558,25 @@ export const EmployeeLeaveSelf: React.FC = () => {
           </ul>
         )}
       </section>
-    </div>
+    </main>
   );
 };
 
 function EmptyEmployee() {
   return (
-    <div className="py-20 text-center text-sm text-slate-500">
+    <main className="py-20 text-center text-sm text-slate-500" role="status">
       Employee profile not found. Sign out and choose a valid employee.
-    </div>
+    </main>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, asListItem = false }: { label: string; value: string; asListItem?: boolean }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4">
+    <div
+      className="bg-white rounded-2xl border border-slate-200 p-4"
+      role={asListItem ? 'listitem' : undefined}
+      aria-label={`${label}: ${value}`}
+    >
       <p className="text-[11px] font-semibold text-slate-500">{label}</p>
       <p className="text-lg font-bold text-slate-900 mt-1">{value}</p>
     </div>
@@ -578,7 +588,8 @@ function QuickAction({ title, desc, onClick }: { title: string; desc: string; on
     <button
       type="button"
       onClick={onClick}
-      className="text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all"
+      aria-label={`${title}. ${desc}`}
+      className="text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
     >
       <p className="text-sm font-bold text-slate-900">{title}</p>
       <p className="text-xs text-slate-500 mt-1">{desc}</p>

@@ -54,18 +54,30 @@ export function normalizeEmployeeFields<T extends Partial<Employee>>(emp: T): T 
   };
 }
 
+export type EmployeeValidationScope = 'core' | 'full';
+
 /**
  * Validate employee fields for directory save.
- * When status is Active (or requirePayrollReady), enforce payroll-ready rules.
+ *
+ * - `scope: 'core'` — name, email, CTC only (admin edits / CTC changes).
+ *   Related identity/bank fields never block save.
+ * - `scope: 'full'` (default) — also format-check related fields when present;
+ *   when status is Active (or requirePayrollReady), require payroll-ready fields.
+ *   Use at payroll run time, not for admin CTC edits.
  */
 export function validateEmployeeFields(
   emp: Partial<Employee>,
-  options: { requirePayrollReady?: boolean } = {},
+  options: {
+    requirePayrollReady?: boolean;
+    /** Admin directory updates use 'core' so CTC saves are not blocked by PAN/bank gaps. */
+    scope?: EmployeeValidationScope;
+  } = {},
 ): EmployeeFieldValidationResult {
   const normalized = normalizeEmployeeFields(emp);
   const issues: EmployeeFieldIssue[] = [];
-  const payrollReady = options.requirePayrollReady === true
-    || normalized.status === 'Active';
+  const scope = options.scope ?? 'full';
+  const payrollReady = scope === 'full'
+    && (options.requirePayrollReady === true || normalized.status === 'Active');
 
   if (!normalized.name?.trim()) {
     issues.push({ code: 'MISSING_NAME', message: 'Name is required' });
@@ -79,6 +91,15 @@ export function validateEmployeeFields(
   const ctc = Number(normalized.ctc);
   if (!(ctc > 0)) {
     issues.push({ code: 'INVALID_CTC', message: 'CTC must be greater than 0' });
+  }
+
+  // Related fields: never block admin/core saves (CTC / directory edits).
+  if (scope === 'core') {
+    return {
+      ok: issues.length === 0,
+      issues,
+      messages: issues.map((i) => i.message),
+    };
   }
 
   const pan = (normalized.panNumber || '').trim();

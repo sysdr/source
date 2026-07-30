@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "artifact": "security_report",
+    "version": "1.1.0",
+    "agent_id": "security-auditor",
+    "cycle": 2,
+    "generated_at": "2026-07-30T13:23:55.822Z",
+    "requirement_ids": [
+      "REQ-027",
+      "REQ-069"
+    ],
+    "rework_ids": [
+      "RW-010",
+      "RW-P-003"
+    ]
+  },
+  "dependency_audit": {
+    "critical": 0,
+    "high": 0,
+    "moderate": 3,
+    "low": 0,
+    "info": 0,
+    "gate": "pass"
+  },
+  "dast": {
+    "mode": "lightweight_api_probes",
+    "targets": [
+      "RBAC employee write denial",
+      "RBAC accountant write denial",
+      "leave self-only create",
+      "security headers",
+      "oversized body rejection",
+      "path-traversal org isolation",
+      "admin backup auth"
+    ],
+    "passed": true,
+    "note": "Full ZAP against shared staging still optional; API DAST probes run in CI via npm run test:dast"
+  },
+  "findings": {
+    "critical": 0,
+    "high": 0,
+    "medium": 3,
+    "advisory": []
+  },
+  "gate3": {
+    "security_floor_95": true,
+    "residual_risks": [
+      "External ZAP/DAST against dedicated staging not run in this pass",
+      "TLS 1.3 / HSTS apply only behind production reverse proxy"
+    ]
+  }
+}

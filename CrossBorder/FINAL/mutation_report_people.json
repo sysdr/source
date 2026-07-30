@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "agent_id": "test-engineer",
+    "artifact": "mutation_report_people",
+    "config": "stryker.people.config.mjs",
+    "generated_at": "2026-07-30T14:52:19Z",
+    "duration_s": 107
+  },
+  "mutate": [
+    "services/employeeSelfService.ts",
+    "services/displayPii.ts",
+    "services/employeeLifecycle.ts"
+  ],
+  "files": {
+    "displayPii.ts": {
+      "path": "services/displayPii.ts",
+      "mutation_score": 100.0,
+      "killed": 21,
+      "survived": 0,
+      "no_coverage": 0,
+      "total": 21,
+      "survivors": []
+    },
+    "employeeLifecycle.ts": {
+      "path": "services/employeeLifecycle.ts",
+      "mutation_score": 100.0,
+      "killed": 89,
+      "survived": 0,
+      "no_coverage": 0,
+      "total": 89,
+      "survivors": []
+    },
+    "employeeSelfService.ts": {
+      "path": "services/employeeSelfService.ts",
+      "mutation_score": 85.37,
+      "killed": 35,
+      "survived": 6,
+      "no_coverage": 0,
+      "total": 41,
+      "survivors": [
+        {
+          "mutator": "ConditionalExpression",
+          "line": 35,
+          "replacement": "false"
+        },
+        {
+          "mutator": "BooleanLiteral",
+          "line": 48,
+          "replacement": "true"
+        },
+        {
+          "mutator": "ConditionalExpression",
+          "line": 51,
+          "replacement": "true"
+        },
+        {
+          "mutator": "EqualityOperator",
+          "line": 51,
+          "replacement": "pan.length >= 0"
+        },
+        {
+          "mutator": "ConditionalExpression",
+          "line": 52,
+          "replacement": "true"
+        },
+        {
+          "mutator": "EqualityOperator",
+          "line": 52,
+          "replacement": "aadhaar.length >= 0"
+        }
+      ]
+    }
+  },
+  "totals": {
+    "killed": 145,
+    "survived": 6,
+    "noCoverage": 0,
+    "timeout": 0,
+    "errors": 0,
+    "total": 151
+  },
+  "mutation_score": 96.03,
+  "threshold_target": 80,
+  "meets_threshold": true,
+  "rw_009b_people_slice": "done",
+  "note": "People slice \u226580%. Six equivalent survivors remain in pan/aadhaar length checks (truthy string \u21d2 length>0 \u2261 length>=0 / && true). Optional expand: payroll/TDS/filings.",
+  "html_report": "reports/mutation/mutation.html"
+}

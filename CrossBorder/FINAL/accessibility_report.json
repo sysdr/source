@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "artifact": "accessibility_report",
+    "version": "1.2.0",
+    "agent_id": "accessibility-engineer",
+    "cycle": 2,
+    "generated_at": "2026-07-30T13:30:00Z",
+    "rework_ids": ["F-013", "RW-P-005", "RW-002"]
+  },
+  "axe": {
+    "suites": ["a11y.smoke", "a11y.axe", "a11y.employeePortal"],
+    "serious_critical": 0,
+    "color_contrast_in_jsdom": "disabled (no canvas) — covered by design-token contrast suite"
+  },
+  "contrast_tokens": {
+    "suite": "a11y.contrast.test.ts",
+    "wcag_aa_pairs_checked": [
+      "n-900 on surface-page",
+      "n-900 on white",
+      "brand-600 on white",
+      "rose-700 on white",
+      "emerald-800 on white",
+      "n-500 on white"
+    ],
+    "passed": true
+  },
+  "screen_reader": {
+    "employee_portal": "landmarks, aria-live, labelled actions (RW-P-005 done)",
+    "navigation": "keyboard-focusable buttons + EmployeeHome SR names",
+    "full_app_manual_sr_pass": "residual — VoiceOver walkthrough of all owner tabs not recorded"
+  },
+  "tests_passed": 23,
+  "gate3": {
+    "floor_90_met": true,
+    "residual": "Optional full VoiceOver recording across owner shell"
+  }
+}

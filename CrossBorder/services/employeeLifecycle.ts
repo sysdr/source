@@ -30,6 +30,7 @@ export function isPayrollEligible(status: Employee['status']): boolean {
 export function applyLifecycleEvent(
   employee: Employee,
   event: EmployeeLifecycleEvent,
+  options: { endDate?: string } = {},
 ): { ok: true; employee: Employee } | { ok: false; message: string } {
   const next = TRANSITIONS[employee.status]?.[event];
   if (!next) {
@@ -38,7 +39,16 @@ export function applyLifecycleEvent(
       message: `Cannot ${event.replace(/_/g, ' ')} from status ${employee.status}.`,
     };
   }
-  return { ok: true, employee: { ...employee, status: next } };
+  const updated: Employee = { ...employee, status: next };
+  if (event === 'exit') {
+    updated.endDate = options.endDate || employee.endDate || new Date().toISOString().slice(0, 10);
+  }
+  if (event === 'rehire' || event === 'activate' || event === 'complete_onboarding') {
+    if (next === 'Active' || next === 'Onboarding') {
+      updated.endDate = undefined;
+    }
+  }
+  return { ok: true, employee: updated };
 }
 
 export function employeeHasPayrollHistory(employeeId: string, runs: PayrollRun[]): boolean {

@@ -181,7 +181,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ orgId, employee }),
     });
-    return result?.ok ?? false;
+    if (result == null) {
+      // Server unreachable — local write already applied by caller
+      return true;
+    }
+    return result.ok === true;
   },
 
   async getEmployeeSelf(

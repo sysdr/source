@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "agent_id": "scorecard",
+    "cycle": 2,
+    "pass": "rw-009c-payroll-stryker"
+  },
+  "dimensions": {
+    "correctness": {
+      "score": 95,
+      "floor": 90,
+      "below_floor": false,
+      "note": "People Stryker 96.03%; payroll/TDS Stryker 82.94%; mutation-kill 10/10"
+    },
+    "domain_fidelity": {
+      "score": 91,
+      "floor": 85,
+      "below_floor": false
+    },
+    "experience": {
+      "score": 86,
+      "floor": 75,
+      "below_floor": false,
+      "note": "Demo screenshots A\u2013E 10/10"
+    },
+    "reliability": {
+      "score": 90,
+      "floor": 85,
+      "below_floor": false
+    },
+    "performance": {
+      "score": 90,
+      "floor": 80,
+      "below_floor": false
+    },
+    "security_privacy": {
+      "score": 95,
+      "floor": 95,
+      "below_floor": false
+    },
+    "accessibility": {
+      "score": 91,
+      "floor": 90,
+      "below_floor": false
+    },
+    "operability": {
+      "score": 86,
+      "floor": 75,
+      "below_floor": false
+    }
+  },
+  "composite": 90,
+  "composite_capped_by_floor": 90,
+  "marginal_gain_vs_prior": 0,
+  "top_leverage": [
+    "Expand Stryker to filings generators (RW-009d)",
+    "VoiceOver recording of owner shell (F-013b)",
+    "Staging ZAP (RW-010 residual)"
+  ],
+  "gate3_blocker": null,
+  "gate3_ready": true,
+  "gate3_confirmed": true
+}

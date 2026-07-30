@@ -25,6 +25,16 @@ const Currency = z.enum(['USD', 'INR']);
 const EntityType = z.enum(['parent', 'subsidiary']).optional();
 const GST_RATES = [0, 5, 12, 18, 28] as const;
 
+/** Strip spaces; empty/invalid optional IDs become '' so admin CTC edits are not blocked. */
+function optionalIdField(re: RegExp, transform: (s: string) => string = (s) => s) {
+  return z.preprocess((value) => {
+    if (value == null) return '';
+    const raw = transform(String(value).replace(/\s+/g, ''));
+    if (!raw) return '';
+    return re.test(raw) ? raw : '';
+  }, z.union([z.literal(''), z.string().regex(re)]));
+}
+
 // ─── Transaction ─────────────────────────────────────────────────────────────
 
 // Base shape used for both full and partial (update) schemas
@@ -118,6 +128,11 @@ const EmployeeBaseShape = {
   designation: z.string().min(1, 'designation required'),
   ctc:         z.number().positive('CTC must be positive'),
   doj:         ISODate,
+  /** Last working / resignation date. Set when status is Exited (or Notice with known LWD). */
+  endDate:     z.preprocess(
+    (v) => (v == null || v === '' ? undefined : v),
+    ISODate.optional(),
+  ),
   status:      z.enum(['Active', 'Inactive', 'Onboarding', 'Notice', 'Exited', 'Archived'] as const),
   email:       z.string().email('invalid email'),
   documents:   z.object({
@@ -125,12 +140,18 @@ const EmployeeBaseShape = {
     aadhaar:  z.boolean(),
     contract: z.boolean(),
   }),
-  panNumber:        z.string().regex(PAN_RE, 'PAN must be in format AAAAA0000A').optional().or(z.literal('')),
-  aadhaarNumber:    z.string().regex(AADHAAR_RE, 'Aadhaar must be 12 digits').optional().or(z.literal('')),
-  uan:              z.string().regex(UAN_RE, 'UAN must be 12 digits').optional().or(z.literal('')),
-  bankIFSC:         z.string().regex(IFSC_RE, 'IFSC must match format e.g. HDFC0001234').optional().or(z.literal('')),
-  bankAccountNumber:z.string().optional(),
-  gender:           z.enum(['Male', 'Female', 'Other'] as const).optional(),
+  panNumber:        optionalIdField(PAN_RE, (s) => s.toUpperCase()),
+  aadhaarNumber:    optionalIdField(AADHAAR_RE),
+  uan:              optionalIdField(UAN_RE),
+  bankIFSC:         optionalIdField(IFSC_RE, (s) => s.toUpperCase()),
+  bankAccountNumber:z.preprocess(
+    (v) => (v == null ? '' : String(v).replace(/\s+/g, '')),
+    z.string().optional(),
+  ),
+  gender: z.preprocess(
+    (v) => (v == null || v === '' ? undefined : v),
+    z.enum(['Male', 'Female', 'Other'] as const).optional(),
+  ),
   employeeType:     z.enum(['Full-time', 'Part-time', 'Contract', 'Intern'] as const).optional(),
   taxRegime:        z.enum(['new', 'old'] as const).optional(),
   noticePeriodDays: z.number().int().nonnegative().optional(),
@@ -141,27 +162,9 @@ export const EmployeeUpdateSchema = z.object(EmployeeBaseShape).partial().requir
 
 export const EmployeeSchema = z
   .object(EmployeeBaseShape)
-  .passthrough()
-  // Business rule: if documents.pan = true, panNumber should be provided
-  .superRefine((e, ctx) => {
-    if (e.documents.pan && !e.panNumber) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['panNumber'],
-        message: 'panNumber is required when documents.pan is marked true',
-      });
-    }
-  })
-  // Business rule: if documents.aadhaar = true, aadhaarNumber should be provided
-  .superRefine((e, ctx) => {
-    if (e.documents.aadhaar && !e.aadhaarNumber) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['aadhaarNumber'],
-        message: 'aadhaarNumber is required when documents.aadhaar is marked true',
-      });
-    }
-  });
+  .passthrough();
+  // Related identity fields (PAN/Aadhaar flags vs numbers) are advisory for admin
+  // directory/CTC edits — payroll pre-validation enforces readiness at run time.
 
 // ─── PayrollRun ───────────────────────────────────────────────────────────────
 
@@ -299,6 +302,22 @@ export function validate(
   return issues
     .map(i => `${(i.path as (string | number)[]).join('.') || 'root'}: ${i.message}`)
     .join('; ');
+}
+
+/** Parse with Zod transforms/preprocessors applied; returns cleaned data or error. */
+export function parseWithSchema<T>(
+  schema: z.ZodType<T>,
+  data: unknown,
+): { ok: true; data: T } | { ok: false; error: string } {
+  const result = schema.safeParse(data);
+  if (result.success) return { ok: true, data: result.data };
+  const issues = result.error.issues;
+  return {
+    ok: false,
+    error: issues
+      .map(i => `${(i.path as (string | number)[]).join('.') || 'root'}: ${i.message}`)
+      .join('; '),
+  };
 }
 
 /** Validate an array; returns array of {index, error} for any failed items. */

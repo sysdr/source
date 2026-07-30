@@ -155,6 +155,10 @@ const EmployeeProfile: React.FC<Props> = ({ employee, onUpsert, onDelete, onBack
               <dd className="font-medium font-mono text-right">{bankAcctShown}</dd>
             </div>
             <div className="flex justify-between gap-4"><dt className="text-slate-500">DOJ</dt><dd className="font-medium">{employee.doj}</dd></div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-slate-500">End date</dt>
+              <dd className="font-medium">{employee.endDate || (employee.status === 'Exited' ? 'Not set' : '—')}</dd>
+            </div>
           </dl>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-5">

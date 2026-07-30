@@ -35,6 +35,9 @@ afterEach(async () => {
   delete process.env.ENFORCE_ROLE_AUTH;
   delete process.env.PII_ENCRYPTION_KEY;
   delete process.env.BACKUP_DIR;
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  delete process.env.STRIPE_WEBHOOK_ORG_ID;
+  delete process.env.FF_STRIPE_WEBHOOK_INGEST;
 });
 
 describe('server API', () => {
@@ -457,7 +460,7 @@ describe('server API', () => {
 
     const first = await fetch(`${baseUrl}/api/stripe/webhook`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': 'secret-key' },
       body: JSON.stringify({ orgId, event, idempotencyKey: `idem-${eventId}` }),
     });
     expect(first.status).toBe(200);
@@ -467,7 +470,7 @@ describe('server API', () => {
 
     const second = await fetch(`${baseUrl}/api/stripe/webhook`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': 'secret-key' },
       body: JSON.stringify({ orgId, event, idempotencyKey: `idem-${eventId}` }),
     });
     expect(second.status).toBe(200);
@@ -528,6 +531,80 @@ describe('server API', () => {
     const txJson = await txRes.json() as { transactions: Array<Record<string, unknown>> };
     const row = txJson.transactions.find((t) => t.id === `stripe_ch_refund_${stamp}`);
     expect(row?.status).toBe('Refunded');
+  });
+
+  it('requires auth for legacy webhook when SUEZ_API_KEY is set', async () => {
+    process.env.SUEZ_API_KEY = 'secret-key';
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/stripe/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgId: 'o1',
+        event: { id: 'evt_unauth', type: 'charge.succeeded', data: { object: { id: 'ch_x', amount: 100, currency: 'usd', created: 1, status: 'succeeded' } } },
+      }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('acks customer.subscription.updated without charge as metadata-only (REQ-078)', async () => {
+    const baseUrl = await startServer();
+    const stamp = Date.now();
+    const res = await fetch(`${baseUrl}/api/stripe/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgId: `sub-org-${stamp}`,
+        event: {
+          id: `evt_sub_${stamp}`,
+          type: 'customer.subscription.updated',
+          data: { object: { id: `sub_${stamp}`, status: 'active', metadata: { plan: 'pro' } } },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json() as { ok: boolean; ledgerPosted?: boolean; reason?: string };
+    expect(json.ok).toBe(true);
+    expect(json.ledgerPosted).toBe(false);
+    expect(json.reason).toBe('subscription_metadata_only');
+  });
+
+  it('verifies Stripe-Signature when STRIPE_WEBHOOK_SECRET is configured', async () => {
+    const { createHmac } = await import('node:crypto');
+    const secret = 'whsec_test_integration';
+    process.env.STRIPE_WEBHOOK_SECRET = secret;
+    process.env.STRIPE_WEBHOOK_ORG_ID = `sig-org-${Date.now()}`;
+    const baseUrl = await startServer();
+    const chargeId = `ch_sig_${Date.now()}`;
+    const event = {
+      id: `evt_sig_${Date.now()}`,
+      type: 'charge.succeeded',
+      data: {
+        object: {
+          id: chargeId,
+          amount: 5000,
+          currency: 'usd',
+          created: 1760000200,
+          status: 'succeeded',
+          billing_details: { address: { country: 'US' } },
+        },
+      },
+    };
+    const rawBody = JSON.stringify(event);
+    const ts = Math.floor(Date.now() / 1000);
+    const v1 = createHmac('sha256', secret).update(`${ts}.${rawBody}`, 'utf8').digest('hex');
+    const res = await fetch(`${baseUrl}/api/stripe/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Stripe-Signature': `t=${ts},v1=${v1}`,
+      },
+      body: rawBody,
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json() as { ok: boolean; transactionId?: string };
+    expect(json.ok).toBe(true);
+    expect(json.transactionId).toBe(`stripe_${chargeId}`);
   });
 
   it('validates and runs payroll batch with row-level failures (REQ-011 / REQ-035 / REQ-059)', async () => {
@@ -663,7 +740,10 @@ describe('server API', () => {
         },
       }),
     });
-    expect(bad.status).toBe(422);
+    // Invalid related IDs are coerced empty so admin CTC/profile saves are not blocked
+    expect(bad.status).toBe(200);
+    const badBody = await bad.json() as { employee: { panNumber?: string } };
+    expect(badBody.employee.panNumber === '' || !badBody.employee.panNumber).toBe(true);
 
     const list = await fetch(`${baseUrl}/api/employees?orgId=${orgId}`, {
       headers: { 'X-API-Key': 'secret-key' },
@@ -1508,5 +1588,58 @@ describe('lightweight DAST / RBAC probes (RW-010 / RW-P-003)', () => {
     const body = await ok.json() as { ok: boolean; request: { status: string } };
     expect(body.ok).toBe(true);
     expect(body.request.status).toBe('Pending');
+  });
+
+  it('emits baseline security headers on health', async () => {
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/health`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('content-security-policy') || '').toContain("default-src 'none'");
+  });
+
+  it('rejects oversized JSON bodies (DoS probe)', async () => {
+    process.env.MAX_BODY_BYTES = '256';
+    const baseUrl = await startServer();
+    const res = await fetch(`${baseUrl}/api/storage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-SUEZ-ROLE': 'owner' },
+      body: JSON.stringify({ key: 'x', value: 'y'.repeat(400) }),
+    });
+    expect([413, 400]).toContain(res.status);
+  });
+
+  it('blocks path-traversal style org keys from leaking across tenants', async () => {
+    process.env.ENFORCE_ROLE_AUTH = '1';
+    const victim = `dast-victim-${Date.now()}`;
+    const attacker = `dast-attacker-${Date.now()}`;
+    setOrgData(victim, 'suez_secret', { secret: 'victim-only' });
+    const baseUrl = await startServer();
+    const probe = await fetch(
+      `${baseUrl}/api/org/${encodeURIComponent('../' + victim)}/suez_secret`,
+      { headers: { 'X-SUEZ-ROLE': 'employee', 'X-SUEZ-EMPLOYEE-ID': 'E-x' } },
+    );
+    // Must not return the victim secret; 404/403/400 are all acceptable.
+    expect(probe.status).not.toBe(200);
+    const direct = await fetch(`${baseUrl}/api/org/${encodeURIComponent(attacker)}/suez_secret`, {
+      headers: { 'X-SUEZ-ROLE': 'employee', 'X-SUEZ-EMPLOYEE-ID': 'E-x' },
+    });
+    if (direct.status === 200) {
+      const body = await direct.json();
+      expect(JSON.stringify(body)).not.toContain('victim-only');
+    }
+  });
+
+  it('requires API key for admin backup when configured', async () => {
+    process.env.SUEZ_API_KEY = 'dast-backup-key';
+    const baseUrl = await startServer();
+    const denied = await fetch(`${baseUrl}/api/admin/backup/status`);
+    expect(denied.status).toBe(401);
+    const ok = await fetch(`${baseUrl}/api/admin/backup/status`, {
+      headers: { 'X-API-Key': 'dast-backup-key' },
+    });
+    expect(ok.status).toBe(200);
   });
 });

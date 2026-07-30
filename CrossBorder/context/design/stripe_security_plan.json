@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "agent_id": "security-architect",
+    "artifact": "stripe_security_plan",
+    "version": "1.0.0",
+    "adr": "ADR-003"
+  },
+  "stride_summary": {
+    "webhook": {
+      "spoofing": "mitigated by Stripe-Signature HMAC when STRIPE_WEBHOOK_SECRET set",
+      "tampering": "timing-safe compare of v1 signatures",
+      "repudiation": "audit stripe_webhook_ingest + stripe_events store",
+      "info_disclosure": "do not log sk_* / whsec_*",
+      "dos": "MAX_BODY_BYTES + rate limit",
+      "elevation": "legacy shim requires SUEZ_API_KEY when configured"
+    }
+  },
+  "iteration_controls": [
+    "verifyStripeWebhookSignature",
+    "dual_mode_webhook",
+    "claim_before_process",
+    "canonical_stripe_ids"
+  ],
+  "deferred_controls": [
+    "secrets_manager_no_browser_sk",
+    "connect_oauth_restricted_keys",
+    "org_map_from_stripe_account_table"
+  ]
+}

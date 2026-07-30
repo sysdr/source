@@ -23,7 +23,7 @@ const DEPARTMENTS = [
 
 const EMPTY_EMPLOYEE: Partial<Employee> = {
   name: '', designation: '', ctc: 0, doj: new Date().toISOString().split('T')[0],
-  status: 'Onboarding', email: '', phone: '', gender: undefined, dateOfBirth: '',
+  endDate: '', status: 'Onboarding', email: '', phone: '', gender: undefined, dateOfBirth: '',
   panNumber: '', aadhaarNumber: '', uan: '', esiNumber: '',
   bankAccountNumber: '', bankIFSC: '', bankName: '',
   department: '', employeeType: 'Full-time', reportingManager: '',
@@ -56,7 +56,7 @@ interface Props {
   employees: Employee[];
   profile: CompanyProfile | null;
   payrollMonthlyNet: number;
-  onUpsertEmployee: (emp: Employee) => void;
+  onUpsertEmployee: (emp: Employee) => void | Promise<void>;
   onDeleteEmployee: (id: string) => void;
   toast: (type: 'success' | 'error' | 'info', text: string) => void;
 }
@@ -101,51 +101,75 @@ const EmployeeDirectory: React.FC<Props> = ({
     return list;
   }, [employees, search, statusFilter, deptFilter]);
 
-  const handleAddEmployee = () => {
+  const handleAddEmployee = async () => {
     const normalized = normalizeEmployeeFields({
       ...EMPTY_EMPLOYEE,
       ...newEmployee,
     });
-    const validation = validateEmployeeFields(normalized);
+    const validation = validateEmployeeFields(normalized, { scope: 'core' });
     if (!validation.ok) {
       toast('error', validation.messages[0] || 'Validation failed');
       return;
     }
+    const status = normalized.status ?? 'Onboarding';
     const emp: Employee = {
       ...EMPTY_EMPLOYEE as Employee,
       ...normalized as Employee,
       id: `EMP-${uid()}`,
+      status,
+      endDate: status === 'Exited'
+        ? (normalized.endDate || new Date().toISOString().slice(0, 10))
+        : (normalized.endDate || undefined),
       documents: {
         pan: !!(normalized.panNumber),
         aadhaar: !!(normalized.aadhaarNumber),
         contract: normalized.documents?.contract ?? false,
       },
     };
-    onUpsertEmployee(emp);
-    setShowAddModal(false);
-    setNewEmployee({ ...EMPTY_EMPLOYEE });
-    toast('success', `${emp.name} added successfully`);
+    try {
+      await onUpsertEmployee(emp);
+      setShowAddModal(false);
+      setNewEmployee({ ...EMPTY_EMPLOYEE });
+      toast('success', `${emp.name} added successfully`);
+    } catch (e) {
+      toast('error', (e as Error).message || 'Failed to save employee');
+    }
   };
 
-  const handleUpdateEmployee = () => {
+  const handleUpdateEmployee = async () => {
     if (!editingEmployee) return;
     const normalized = normalizeEmployeeFields(editingEmployee);
-    const validation = validateEmployeeFields(normalized);
+    // Core-only: admin may change CTC without being blocked by missing PAN/bank/etc.
+    const validation = validateEmployeeFields(normalized, { scope: 'core' });
     if (!validation.ok) {
-      toast('error', validation.messages.join('; '));
+      toast('error', validation.messages[0] || 'Validation failed');
       return;
+    }
+    const status = normalized.status ?? 'Active';
+    let endDate = normalized.endDate?.trim() || undefined;
+    if (status === 'Exited' && !endDate) {
+      endDate = new Date().toISOString().slice(0, 10);
+    }
+    if (status !== 'Exited' && status !== 'Notice' && status !== 'Inactive') {
+      endDate = undefined;
     }
     const emp: Employee = {
       ...normalized,
+      status,
+      endDate,
       documents: {
         pan: !!(normalized.panNumber),
         aadhaar: !!(normalized.aadhaarNumber),
         contract: normalized.documents?.contract ?? false,
       },
     };
-    onUpsertEmployee(emp);
-    setEditingEmployee(null);
-    toast('success', 'Employee updated');
+    try {
+      await onUpsertEmployee(emp);
+      setEditingEmployee(null);
+      toast('success', 'Employee updated');
+    } catch (e) {
+      toast('error', (e as Error).message || 'Failed to save employee');
+    }
   };
 
   const handleDeleteEmployee = (id: string) => {
@@ -247,11 +271,15 @@ const EmployeeDirectory: React.FC<Props> = ({
                           emp.status === 'Active' ? 'bg-emerald-50 text-emerald-700' :
                           emp.status === 'Onboarding' ? 'bg-amber-50 text-amber-700' :
                           emp.status === 'Notice' ? 'bg-orange-50 text-orange-700' :
+                          emp.status === 'Exited' ? 'bg-rose-50 text-rose-700' :
                           'bg-slate-100 text-slate-600'
                         }`}
                       >
                         {emp.status}
                       </span>
+                      {emp.endDate && (emp.status === 'Exited' || emp.status === 'Notice' || emp.status === 'Inactive') && (
+                        <span className="text-[10px] text-slate-500">End {emp.endDate}</span>
+                      )}
                       {!compliant && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-rose-50 text-rose-600">
                           Below min wage
@@ -506,13 +534,38 @@ const EmployeeDirectory: React.FC<Props> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">Status</label>
-                <select value={editingEmployee.status} onChange={(e) => setEditingEmployee({ ...editingEmployee, status: e.target.value as Employee['status'] })} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/30">
+                <select
+                  value={editingEmployee.status}
+                  onChange={(e) => {
+                    const status = e.target.value as Employee['status'];
+                    setEditingEmployee({
+                      ...editingEmployee,
+                      status,
+                      endDate: status === 'Exited'
+                        ? (editingEmployee.endDate || new Date().toISOString().slice(0, 10))
+                        : (status === 'Notice' || status === 'Inactive'
+                          ? editingEmployee.endDate
+                          : ''),
+                    });
+                  }}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/30"
+                >
                   <option value="Active">Active</option>
                   <option value="Onboarding">Onboarding</option>
                   <option value="Inactive">Inactive</option>
                   <option value="Notice">Notice</option>
-                  <option value="Exited">Exited</option>
+                  <option value="Exited">Exited / Resigned</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">End date (resigned / LWD)</label>
+                <input
+                  type="date"
+                  value={editingEmployee.endDate || ''}
+                  onChange={(e) => setEditingEmployee({ ...editingEmployee, endDate: e.target.value })}
+                  disabled={editingEmployee.status !== 'Exited' && editingEmployee.status !== 'Notice' && editingEmployee.status !== 'Inactive'}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/30 disabled:opacity-50"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">Tax regime</label>

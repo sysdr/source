@@ -1,0 +1,54 @@
+{
+  "meta": {
+    "artifact": "release_package",
+    "version": "0.2.0",
+    "generated_at": "2026-07-30T14:37:00Z",
+    "agent_id": "release-manager",
+    "gate_3": "confirmed"
+  },
+  "product": "Project Suez \u2014 Cross-Border Financial OS",
+  "semver": "0.2.0",
+  "features_shipping": [
+    "Cross-border ERP core (ledger, filings, Stripe, payroll, compliance)",
+    "People module + employee portal (ff_people_module)",
+    "Magic-link / OTP landing auth",
+    "API security headers + lightweight DAST"
+  ],
+  "verification": {
+    "scorecard_composite": 90,
+    "floors_met": true,
+    "dast": "pass",
+    "a11y_axe_serious_critical": 0,
+    "mutation_kill_proxies": "10/10 pass",
+    "demo_p0": "pass",
+    "demo_screenshots": "A\u2013E desktop+tablet 10/10 (Payroll + People + Filing)",
+    "stryker_people": "96.03% (meets \u226580%)",
+    "stryker_payroll": "82.94% (meets \u226580%)"
+  },
+  "feature_flags": {
+    "ff_people_module": {
+      "default": true,
+      "rollout": "0% (dark) \u2192 1% \u2192 10% \u2192 50% \u2192 100%",
+      "current": "0% production policy"
+    }
+  },
+  "env_changes": [
+    "GEMINI_API_KEY / API_KEY required for AI assistant",
+    "Optional SUEZ_API_KEY for orchestrator auth"
+  ],
+  "rollback": {
+    "app": "Redeploy previous image; keep SQLite backup from npm run backup:db",
+    "flag": "Set suez_ff_ff_people_module=false to hide People nav",
+    "rto_estimate": "Under 1h with last verified backup"
+  },
+  "open_acknowledgements_required": [
+    "Expand Stryker to filings generators optional (RW-009d)",
+    "External ZAP against dedicated staging not run",
+    "VoiceOver full-shell recording not captured"
+  ],
+  "deployment": {
+    "status": "deployed_local",
+    "artifact": "context/release/deployment_status.json",
+    "backup": "suez-2026-07-30T14-35-35-563Z.db"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "meta": {
+    "agent_id": "deploy",
+    "artifact": "deployment_status",
+    "artifact_version": "1.0.0",
+    "phase": "deploy",
+    "cycle": 2,
+    "completed_at": "2026-07-30T14:37:00Z",
+    "confidence": 0.88,
+    "epistemic_summary": {
+      "cited": 0,
+      "observed": 8,
+      "inferred": 1,
+      "assumed": 0
+    },
+    "triggers": ["monitoring"]
+  },
+  "gate_3": "confirmed",
+  "gate_3_confirmation": "context/release/gate_3_confirmation.json",
+  "release": "0.2.0",
+  "deployment_target": "local_production_like",
+  "public_publish": false,
+  "pre_deploy": {
+    "backup_file": "suez-2026-07-30T14-35-35-563Z.db",
+    "backup_path": "data/backups/suez-2026-07-30T14-35-35-563Z.db",
+    "backup_verify": "PASS",
+    "rpo_compliant": true,
+    "predeploy_fresh": true,
+    "migrations": {
+      "mode": "sqlite_auto_on_boot",
+      "dry_run": "n/a — schema via CREATE IF NOT EXISTS + migrateFromKV idempotent",
+      "live": "already_applied_on_running_server"
+    }
+  },
+  "dark_deploy": {
+    "production_build": "pass",
+    "dist_index": "dist/index.html",
+    "feature_flags": {
+      "ff_people_module": {
+        "production_policy_pct": 0,
+        "note": "Dark: new People surface held at 0% for progressive rollout; core ERP live. Local default remains true for demo until operator sets suez_ff_ff_people_module=false."
+      }
+    }
+  },
+  "canary": {
+    "mode": "staged_smoke_single_tenant",
+    "reason": "No multi-tenant traffic splitter in MVP; canary = sequential smoke gates",
+    "stages": [
+      {
+        "pct": 1,
+        "result": "pass",
+        "checks": ["GET /api/health ok", "frontend 200"]
+      },
+      {
+        "pct": 10,
+        "result": "pass",
+        "checks": ["mutation-kill 10/10"]
+      },
+      {
+        "pct": 50,
+        "result": "pass",
+        "checks": ["demo:p0 dry_run_passed (3 flows)"]
+      },
+      {
+        "pct": 100,
+        "result": "pass",
+        "checks": ["production build present", "API + Vite responding"]
+      }
+    ],
+    "rollback_triggered": false
+  },
+  "post_deploy_verification": {
+    "health": { "url": "http://127.0.0.1:3001/api/health", "ok": true },
+    "frontend": { "url": "http://127.0.0.1:9000/", "status": 200 },
+    "mutation_kill": "10/10",
+    "demo_p0": "dry_run_passed",
+    "slo_dashboards": "not_wired — see monitoring_runbook.md"
+  },
+  "flag_rollout_next": {
+    "ff_people_module": ["0%", "1% (test account)", "10%", "50%", "100%"],
+    "current": "0% production policy / local demo may enable",
+    "auto_rollback_thresholds": {
+      "error_rate_vs_baseline": "+2pp absolute",
+      "health_fail_consecutive": 3
+    }
+  },
+  "status": "deployed_local",
+  "blocks": []
+}

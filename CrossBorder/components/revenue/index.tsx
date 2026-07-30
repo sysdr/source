@@ -33,6 +33,7 @@ import AccountSettings from './AccountSettings';
 import ReconcileView from './ReconcileView';
 import SubstackImport from './SubstackImport';
 import TransactionList from './TransactionList';
+import { STRIPE_API_VERSION } from '../../services/stripeConstants';
 
 interface RevenueIngestionProps {
   stripeApiKey: string;
@@ -48,7 +49,7 @@ const buildStripeHeaders = (
 ): HeadersInit => {
   const headers: HeadersInit = {
     Authorization: `Bearer ${apiKey}`,
-    'Stripe-Version': '2024-12-18.acacia',
+    'Stripe-Version': STRIPE_API_VERSION,
     'Content-Type': 'application/x-www-form-urlencoded',
   };
   const ctxId = contextAccountId?.trim();

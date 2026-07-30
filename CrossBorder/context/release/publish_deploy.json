@@ -1,0 +1,22 @@
+{
+  "agent_id": "deploy",
+  "artifact_key": "release/deployment_status.json",
+  "artifact_version": "1.0.0",
+  "phase": "deploy",
+  "cycle": 2,
+  "confidence": 0.88,
+  "epistemic_summary": {
+    "cited": 0,
+    "observed": 8,
+    "inferred": 1,
+    "assumed": 0
+  },
+  "flags": [
+    "local_only",
+    "no_public_publish"
+  ],
+  "blocks": [],
+  "triggers": [
+    "monitoring"
+  ]
+}
