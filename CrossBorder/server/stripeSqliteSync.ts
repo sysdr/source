@@ -7,9 +7,12 @@ import {
   bulkUpsertTransactions,
   deleteAllTransactionsForOrg,
   deleteTransactionsByOrgAndSource,
+  getOrgData,
+  setOrgData,
 } from './db.js';
 import { classifyGstFromCountry } from './normalizeTransaction.js';
 import { STRIPE_API_VERSION } from '../services/stripeConstants.js';
+import { discoverStripeAccounts } from '../services/stripeAccountDiscovery.js';
 
 export { STRIPE_API_VERSION };
 
@@ -42,6 +45,11 @@ export interface StripeSqliteSyncOptions {
   endDate: string;
   /** What to remove before import */
   purge: 'none' | 'stripe' | 'all';
+  /**
+   * Re-discover org/Connect accounts before sync (sk_org_ lists all 21+ org members).
+   * Updates `stripe.accounts` in-memory; caller may persist.
+   */
+  refreshAccounts?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -300,12 +308,60 @@ export async function syncStripeToSqlite(opts: StripeSqliteSyncOptions): Promise
   chargeCount: number;
   upserted: number;
   purgeRemoved: number;
+  accountsDiscovered?: number;
   error?: string;
 }> {
-  const { orgId, baseCurrency, stripe, entireHistory, startDate, endDate, purge } = opts;
+  const { orgId, baseCurrency, entireHistory, startDate, endDate, purge } = opts;
+  let stripe = opts.stripe;
 
   if (!stripe.apiKey?.startsWith('sk_')) {
     return { ok: false, accountsSynced: 0, chargeCount: 0, upserted: 0, purgeRemoved: 0, error: 'Invalid Stripe API key' };
+  }
+
+  let accountsDiscovered: number | undefined;
+  // Default: refresh for org keys so newly added Stripe org members are never skipped.
+  const shouldRefresh =
+    opts.refreshAccounts === true ||
+    (stripe.apiKey.startsWith('sk_org_') && opts.refreshAccounts !== false);
+
+  if (shouldRefresh) {
+    try {
+      const { accounts, source } = await discoverStripeAccounts({
+        apiKey: stripe.apiKey,
+        knownAccounts: stripe.accounts || [],
+        includeConnectChildren: true,
+      });
+      const now = new Date().toISOString();
+      stripe = {
+        ...stripe,
+        accounts: accounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          scope: 'organisation',
+        })),
+        accountsSource: source === 'standard' ? 'standard' : 'connect',
+      };
+      accountsDiscovered = accounts.length;
+      const existing = (getOrgData(orgId, 'suez_stripe_org_config') as Record<string, unknown> | null) || {};
+      setOrgData(orgId, 'suez_stripe_org_config', {
+        ...existing,
+        ...stripe,
+        lastSavedAt: now,
+        accountsRefreshedAt: now,
+      });
+    } catch (e) {
+      if (!stripe.accounts?.length) {
+        return {
+          ok: false,
+          accountsSynced: 0,
+          chargeCount: 0,
+          upserted: 0,
+          purgeRemoved: 0,
+          error: `Account discovery failed: ${(e as Error).message}`,
+        };
+      }
+      console.error('[stripeSqliteSync] account discovery failed; using cached accounts', e);
+    }
   }
 
   let purgeRemoved = 0;
@@ -355,6 +411,7 @@ export async function syncStripeToSqlite(opts: StripeSqliteSyncOptions): Promise
       chargeCount,
       upserted: allMapped.length,
       purgeRemoved,
+      accountsDiscovered,
     };
   } catch (e) {
     return {
@@ -363,6 +420,7 @@ export async function syncStripeToSqlite(opts: StripeSqliteSyncOptions): Promise
       chargeCount,
       upserted: 0,
       purgeRemoved,
+      accountsDiscovered,
       error: (e as Error).message,
     };
   }

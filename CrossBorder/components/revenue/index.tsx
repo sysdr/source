@@ -34,6 +34,7 @@ import ReconcileView from './ReconcileView';
 import SubstackImport from './SubstackImport';
 import TransactionList from './TransactionList';
 import { STRIPE_API_VERSION } from '../../services/stripeConstants';
+import { discoverStripeAccounts } from '../../services/stripeAccountDiscovery';
 
 interface RevenueIngestionProps {
   stripeApiKey: string;
@@ -122,6 +123,19 @@ const fetchOrganisationAccountsFromStripe = async (
   onStatus: (msg: string) => void,
   contextAccountId: string | null
 ): Promise<{ id: string; name?: string }[]> => {
+  // Organization keys: /v1/accounts only lists Connect children (usually empty).
+  // discoverStripeAccounts uses the org-wide Sigma probe to list all member accounts.
+  if (apiKey.startsWith('sk_org_')) {
+    onStatus('Discovering all organisation accounts...');
+    const { accounts } = await discoverStripeAccounts({
+      apiKey,
+      knownAccounts: contextAccountId ? [{ id: contextAccountId }] : [],
+      includeConnectChildren: true,
+    });
+    onStatus(`Found ${accounts.length} organisation account(s).`);
+    return accounts.map((a) => ({ id: a.id, name: a.name }));
+  }
+
   if (!contextAccountId?.trim()) {
     throw new Error('Target account ID (acct_...) is required for organisation accounts. Add it in step 1b.');
   }
