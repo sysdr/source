@@ -21,6 +21,11 @@
       "notes": "People Stryker 96.03% after mutation-strong tests."
     },
     {
+      "id": "RW-009d",
+      "status": "done",
+      "notes": "Filings Stryker 82.99% (gstr1/gstr3b/form24q/26q/epfEcr/validateExport)."
+    },
+    {
       "id": "FINAL",
       "status": "done",
       "notes": "FINAL/ Gate 3 package assembled"
@@ -37,6 +42,16 @@
       "effort": "L",
       "status": "done",
       "notes": "People Stryker 96.03% after mutation-strong tests."
+    },
+    {
+      "id": "RW-009d",
+      "title": "Filings-generator Stryker \u226580%",
+      "re_entry_phase": 4,
+      "owner": "test-engineer",
+      "priority": "P2",
+      "effort": "L",
+      "status": "done",
+      "notes": "Filings slice 82.99%. npm run test:mutation:filings"
     },
     {
       "id": "F-013b",

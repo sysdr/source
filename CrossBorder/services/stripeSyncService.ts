@@ -33,6 +33,7 @@ import {
   storage,
   StorageKeys,
   syncToApi,
+  syncStripeAccountsFromApi,
 } from './storageService';
 import { api } from './apiClient';
 import { STRIPE_API_VERSION, canonicalStripeTransactionId } from './stripeConstants';
@@ -930,8 +931,10 @@ export async function runStripeSyncForAllAccounts(options?: {
   forceFullSync?: boolean;
   /** Same as {@link StripeSyncAccountOptions.entireHistory} for every account. */
   entireHistory?: boolean;
+  /** Re-list org/Connect accounts before sync (default true for sk_org_). */
+  refreshAccounts?: boolean;
 }): Promise<SyncResult> {
-  const config = getStripeOrgConfig();
+  let config = getStripeOrgConfig();
   if (!config.apiKey?.startsWith('sk_')) {
     return {
       success: false,
@@ -940,6 +943,41 @@ export async function runStripeSyncForAllAccounts(options?: {
       accountsSynced: 0,
       error: 'No Stripe API key configured',
     };
+  }
+
+  const shouldRefresh =
+    options?.refreshAccounts === true ||
+    (config.apiKey.startsWith('sk_org_') && options?.refreshAccounts !== false);
+
+  if (shouldRefresh) {
+    try {
+      options?.onStatus?.('Discovering all Stripe organisation accounts…');
+      const { discoverStripeAccounts } = await import('./stripeAccountDiscovery');
+      const { accounts: discovered, source } = await discoverStripeAccounts({
+        apiKey: config.apiKey,
+        knownAccounts: config.accounts || [],
+        includeConnectChildren: true,
+      });
+      syncStripeAccountsFromApi(
+        discovered.map((a) => ({ id: a.id, name: a.name })),
+        source === 'standard' ? 'standard' : 'connect',
+      );
+      config = getStripeOrgConfig();
+      options?.onStatus?.(`Found ${discovered.length} account(s). Starting sync…`);
+    } catch (err: any) {
+      if (!config.accounts?.length) {
+        return {
+          success: false,
+          transactionCount: 0,
+          totalAdded: 0,
+          accountsSynced: 0,
+          error: `Account discovery failed: ${err?.message || 'Unknown error'}`,
+        };
+      }
+      options?.onStatus?.(
+        `Account discovery failed (${err?.message || 'error'}); continuing with ${config.accounts.length} cached account(s)…`,
+      );
+    }
   }
 
   if (options?.forceFullSync || options?.entireHistory) clearStripeSyncCursors();

@@ -62,6 +62,7 @@ export interface PersistentStorageOptions {
 /**
  * Persist a value only if it has changed from what is currently stored.
  * Returns true if the value was written, false if it was unchanged (no write).
+ * On QuotaExceededError, frees heavy ledger/FX keys and retries once.
  */
 export function setIfChanged<T>(
   key: string,
@@ -76,15 +77,78 @@ export function setIfChanged<T>(
     if (hashes[key] === newHash) return false;
   }
 
-  try {
+  const write = (): void => {
     localStorage.setItem(key, JSON.stringify(value));
     const hashes = getHashes();
     hashes[key] = newHash;
     setHashes(hashes);
+  };
+
+  try {
+    write();
     return true;
   } catch (e) {
-    console.error(`persistentStorage: failed to write ${key}`, e);
-    return false;
+    if (!isQuotaExceeded(e)) {
+      console.error(`persistentStorage: failed to write ${key}`, e);
+      return false;
+    }
+    console.warn(`persistentStorage: quota exceeded writing ${key}; freeing space and retrying`);
+    freeLocalStoragePressure(key);
+    try {
+      write();
+      return true;
+    } catch (e2) {
+      console.error(`persistentStorage: failed to write ${key} after quota recovery`, e2);
+      return false;
+    }
+  }
+}
+
+function isQuotaExceeded(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const err = e as { name?: string; code?: number };
+  return err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014;
+}
+
+/** Drop FX caches and strip embedded ledgers from organisations so config writes can succeed. */
+export function freeLocalStoragePressure(preferKeep?: string): void {
+  const removeKeys: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k === preferKeep) continue;
+      if (k.startsWith('suez_fx_') || k.startsWith('suez_calc_')) removeKeys.push(k);
+    }
+    for (const k of removeKeys) localStorage.removeItem(k);
+
+    // Ledger arrays live in SQLite — do not keep multi‑MB copies in localStorage.
+    for (const heavy of ['suez_transactions', 'suez_revenue_data']) {
+      if (heavy === preferKeep) continue;
+      localStorage.removeItem(heavy);
+    }
+
+    const orgRaw = localStorage.getItem('suez_organisations');
+    if (orgRaw && preferKeep !== 'suez_organisations') {
+      try {
+        const state = JSON.parse(orgRaw) as {
+          activeOrgId?: string | null;
+          organisations?: Record<string, Record<string, unknown>>;
+        };
+        if (state.organisations) {
+          for (const org of Object.values(state.organisations)) {
+            org.transactions = [];
+            const rev = org.revenueData as { transactions?: unknown[] } | undefined;
+            if (rev && typeof rev === 'object') rev.transactions = [];
+          }
+          localStorage.setItem('suez_organisations', JSON.stringify(state));
+        }
+      } catch {
+        /* leave as-is */
+      }
+    }
+  } catch (e) {
+    console.error('persistentStorage: freeLocalStoragePressure failed', e);
   }
 }
 

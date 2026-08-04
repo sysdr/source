@@ -6,12 +6,23 @@ Gate 3 **confirmed**. Local deploy is live; public cloud publish was not perform
 | --- | --- | --- | --- |
 | RW-009b | People-scoped Stryker ≥80% | **done** (96.03%) | test-engineer |
 | RW-009c | Payroll/TDS/disclaimer Stryker ≥80% | **done** (82.94%) | test-engineer |
-| RW-009d | Expand Stryker to filings generators (GSTR/24Q/26Q/ECR schemas) | open / optional | test-engineer |
+| RW-009d | Expand Stryker to filings generators (GSTR/24Q/26Q/ECR schemas) | **done** (82.99%) | test-engineer |
 | F-013b | VoiceOver recording of full owner shell | open / optional | accessibility-engineer |
 | RW-010 residual | External ZAP on dedicated staging | open / optional | security-auditor |
-| STRIPE-deferred | Secrets manager (no browser `sk_*`); Connect OAuth; payout-object recon (REQ-058) | open / optional | integration-engineer |
 
-**Stripe ADR-003 follow-ups done:** signed webhooks, claim/retry, canonical ids, legacy `ch_*`→`stripe_ch_*` migration, shared API version, `ff_stripe_server_sync` UI gate.
+## Filings-scoped Stryker (2026-08-04, RW-009d)
+
+| File | Mutation score |
+| --- | --- |
+| `gstr1.ts` | 88.96% |
+| `gstr3b.ts` | 87.41% |
+| `form24q.ts` | 84.11% |
+| `epfEcr.ts` | 84.91% |
+| `form26q.ts` | 78.29% |
+| `validateExport.ts` | 77.08% |
+| **All (filings slice)** | **82.99%** |
+
+Evidence: `mutation_report_filings.json` / `mutation_report_filings_summary.json`. Config: `stryker.filings.config.mjs`.
 
 ## Payroll-scoped Stryker (2026-07-30, RW-009c)
 

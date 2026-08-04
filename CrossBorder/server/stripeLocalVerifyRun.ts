@@ -1,8 +1,9 @@
 /**
  * Fetch live Stripe charges and verify each against SQLite ledger rows.
  */
-import { getOrgData, getAllTransactionsForOrg } from './db.js';
+import { getOrgData, getAllTransactionsForOrg, setOrgData } from './db.js';
 import { STRIPE_API_VERSION } from '../services/stripeConstants.js';
+import { discoverStripeAccounts } from '../services/stripeAccountDiscovery.js';
 import {
   localChargeKey,
   verifyStripeChargesAgainstLocal,
@@ -117,10 +118,39 @@ export async function runStripeLocalVerification(params: {
   endDate?: string;
   accountId?: string;
   maxPagesPerAccount?: number;
+  /** Default true for sk_org_ — rediscover all org members before compare. */
+  refreshAccounts?: boolean;
 }): Promise<StripeLocalVerifyReport & { accountsFetched: number; errors: string[]; window: { startDate: string; endDate: string } }> {
-  const config = getOrgData(params.orgId, 'suez_stripe_org_config') as StripeOrgConfig | null;
+  let config = getOrgData(params.orgId, 'suez_stripe_org_config') as StripeOrgConfig | null;
   if (!config?.apiKey?.startsWith('sk_')) {
     throw new Error(`No Stripe API key in org_data for ${params.orgId} (key suez_stripe_org_config)`);
+  }
+
+  const shouldRefresh =
+    params.refreshAccounts === true ||
+    (config.apiKey.startsWith('sk_org_') && params.refreshAccounts !== false);
+
+  if (shouldRefresh) {
+    try {
+      const { accounts, source } = await discoverStripeAccounts({
+        apiKey: config.apiKey,
+        knownAccounts: config.accounts || [],
+        includeConnectChildren: true,
+      });
+      const now = new Date().toISOString();
+      config = {
+        ...config,
+        accounts: accounts.map((a) => ({ id: a.id, name: a.name, scope: 'organisation' })),
+        accountsSource: source === 'standard' ? 'standard' : 'connect',
+      };
+      setOrgData(params.orgId, 'suez_stripe_org_config', {
+        ...config,
+        lastSavedAt: now,
+        accountsRefreshedAt: now,
+      });
+    } catch (e) {
+      console.error('[stripeLocalVerify] account discovery failed; using cached accounts', e);
+    }
   }
 
   let endTs = Math.floor(Date.now() / 1000);

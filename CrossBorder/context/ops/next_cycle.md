@@ -1,10 +1,10 @@
 # Next cycle (Cycle 3) — if pursued
 
-Gate 3 confirmed; people + payroll/TDS Stryker floors met.
+Gate 3 confirmed; people + payroll/TDS + filings Stryker floors met.
 
 ## Suggested objectives
 
-1. **Filings-generator Stryker** (RW-009d) — gstr1/gstr3b/form24q/26q/epfEcr/validateExport.
+1. ~~**Filings-generator Stryker** (RW-009d)~~ — **done** (82.99%).
 2. **VoiceOver / NVDA walkthrough** (F-013b).
 3. **Staging ZAP** (RW-010 residual).
 4. **Employee magic-link e2e** against Mailhog/SMTP.

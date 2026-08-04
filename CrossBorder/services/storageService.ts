@@ -1,5 +1,5 @@
 import { CompanyProfile, Employee, Transaction, PayrollRun, StripeConnectedAccount, type StripeAccountScope, LeaveRequest, LeavePolicy, LeaveBalance, AttendanceRecord, VaultDocument, PendingTransaction, type GLAccount, Invoice, Vendor, Bill, PaymentRun, JournalEntry, PeriodClose, WithholdingPayment, ForeignIncomeRecord, TaxTreaty, TaxComputation, AdvanceTaxInstallment, USTaxDraft, Contractor1099, FilingTask, RemittanceRecord, OdiProfile, SmtpSettings, EmployeeInvite } from '../types';
-import { setIfChanged, remove as persistentRemove, clearHashes } from './persistentStorage';
+import { setIfChanged, remove as persistentRemove, clearHashes, freeLocalStoragePressure } from './persistentStorage';
 import { dbSet, dbDelete, dbClear } from './dbSync';
 import { api, getAccessRole } from './apiClient';
 import { getAppSession } from './sessionAuth';
@@ -265,7 +265,9 @@ export const storage = {
 
 function getOrganisationsState(): OrganisationsState {
   const state = storage.get<OrganisationsState>(StorageKeys.ORGANISATIONS);
-  if (state) return state;
+  if (state) {
+    return rehydrateOrganisationsState(migrateBloatedOrganisationsIfNeeded(state));
+  }
   const legacyProfile = storage.get<CompanyProfile>(StorageKeys.COMPANY_PROFILE);
   const activeId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID);
   if (legacyProfile && !state) {
@@ -305,15 +307,142 @@ function getOrganisationsState(): OrganisationsState {
       remittanceRecords: [],
     };
     const newState: OrganisationsState = { activeOrgId: id, organisations: { [id]: org } };
-    storage.set(StorageKeys.ORGANISATIONS, newState);
+    storage.set(StorageKeys.ORGANISATIONS, slimOrganisationsState(newState));
     localStorage.setItem(StorageKeys.ACTIVE_ORG_ID, id);
-    return newState;
+    return rehydrateOrganisationsState(newState);
   }
   return { activeOrgId: null, organisations: {} };
 }
 
+/** Never persist multi‑MB Stripe ledgers inside suez_organisations (SQLite is SoT). */
+function slimOrganisationRecord(org: OrganisationRecord): OrganisationRecord {
+  return {
+    ...org,
+    transactions: [],
+    revenueData: {
+      ...(org.revenueData || { lastSyncDate: null, startDate: '2025-04-01', endDate: '2026-01-31' }),
+      transactions: [],
+    },
+  };
+}
+
+function slimOrganisationsState(state: OrganisationsState): OrganisationsState {
+  const organisations: Record<string, OrganisationRecord> = {};
+  for (const [id, org] of Object.entries(state.organisations || {})) {
+    organisations[id] = slimOrganisationRecord(org);
+  }
+  return { ...state, organisations };
+}
+
+/** In-memory ledger so UI keeps working when localStorage cannot hold 3k+ Stripe rows. */
+type LedgerMemCache = {
+  orgId: string;
+  transactions: Transaction[];
+  revenue: RevenueData | null;
+};
+let ledgerMemCache: LedgerMemCache | null = null;
+
+function setLedgerMemCache(orgId: string, patch: Partial<Omit<LedgerMemCache, 'orgId'>>): void {
+  if (ledgerMemCache?.orgId !== orgId) {
+    ledgerMemCache = { orgId, transactions: [], revenue: null };
+  }
+  if (patch.transactions) ledgerMemCache.transactions = patch.transactions;
+  if (patch.revenue !== undefined) ledgerMemCache.revenue = patch.revenue;
+}
+
+const LS_LEDGER_MAX_CHARS = 1_200_000; // ~1.2MB — leave headroom under typical 5MB quota
+
+function trySetLargeLocalStorage(key: StorageKeys, value: unknown, options?: StorageSetOptions): boolean {
+  try {
+    const raw = JSON.stringify(value);
+    if (raw.length > LS_LEDGER_MAX_CHARS) {
+      // Too large for localStorage — keep SQLite + memory only.
+      freeLocalStoragePressure(key);
+      try {
+        localStorage.removeItem(key);
+      } catch { /* noop */ }
+      dbSet(key, value);
+      return false;
+    }
+    storage.set(key, value, options);
+    return true;
+  } catch {
+    freeLocalStoragePressure(key);
+    dbSet(key, value);
+    return false;
+  }
+}
+
+function migrateBloatedOrganisationsIfNeeded(state: OrganisationsState): OrganisationsState {
+  let migrated = false;
+  const organisations = { ...state.organisations };
+  for (const [id, org] of Object.entries(organisations)) {
+    const txCount = org.transactions?.length ?? 0;
+    const revCount = org.revenueData?.transactions?.length ?? 0;
+    if (txCount > 0 || revCount > 0) {
+      if (id === state.activeOrgId) {
+        if (txCount > 0) {
+          setLedgerMemCache(id, { transactions: org.transactions });
+          trySetLargeLocalStorage(StorageKeys.TRANSACTIONS, org.transactions);
+        }
+        if (revCount > 0) {
+          setLedgerMemCache(id, { revenue: org.revenueData });
+          trySetLargeLocalStorage(StorageKeys.REVENUE_DATA, org.revenueData);
+        }
+      }
+      organisations[id] = slimOrganisationRecord(org);
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    const next = { ...state, organisations };
+    freeLocalStoragePressure();
+    storage.set(StorageKeys.ORGANISATIONS, slimOrganisationsState(next), { force: true });
+    return next;
+  }
+  return state;
+}
+
+function rehydrateOrganisationsState(state: OrganisationsState): OrganisationsState {
+  if (!state.activeOrgId) return state;
+  const org = state.organisations[state.activeOrgId];
+  if (!org) return state;
+
+  let transactions = org.transactions || [];
+  if (ledgerMemCache?.orgId === state.activeOrgId && ledgerMemCache.transactions.length > 0) {
+    transactions = ledgerMemCache.transactions;
+  } else {
+    const flat = storage.get<Transaction[]>(StorageKeys.TRANSACTIONS);
+    if (flat && flat.length > (transactions.length || 0)) transactions = flat;
+  }
+
+  let revenueData = org.revenueData;
+  if (ledgerMemCache?.orgId === state.activeOrgId && ledgerMemCache.revenue) {
+    revenueData = ledgerMemCache.revenue;
+  } else {
+    const flatRev = storage.get<RevenueData>(StorageKeys.REVENUE_DATA);
+    if (flatRev && (flatRev.transactions?.length || 0) > (revenueData?.transactions?.length || 0)) {
+      revenueData = flatRev;
+    }
+  }
+
+  return {
+    ...state,
+    organisations: {
+      ...state.organisations,
+      [state.activeOrgId]: { ...org, transactions, revenueData },
+    },
+  };
+}
+
 function saveOrganisationsState(state: OrganisationsState, storageOpts?: StorageSetOptions): void {
-  storage.set(StorageKeys.ORGANISATIONS, state, storageOpts);
+  // Keep heavy ledgers in memory / dedicated keys / SQLite — never inside organisations blob.
+  if (state.activeOrgId && state.organisations[state.activeOrgId]) {
+    const org = state.organisations[state.activeOrgId];
+    if (org.transactions?.length) setLedgerMemCache(state.activeOrgId, { transactions: org.transactions });
+    if (org.revenueData?.transactions?.length) setLedgerMemCache(state.activeOrgId, { revenue: org.revenueData });
+  }
+  storage.set(StorageKeys.ORGANISATIONS, slimOrganisationsState(state), storageOpts);
   if (state.activeOrgId) localStorage.setItem(StorageKeys.ACTIVE_ORG_ID, state.activeOrgId);
   window.dispatchEvent(new Event('suez_data_updated'));
 }
@@ -470,11 +599,12 @@ const getAllTransactionsIncludingArchived = (): Transaction[] => {
 const SQLITE_TXN_UPSERT_CHUNK = 400;
 
 const setTransactionsRaw = (transactions: Transaction[]): void => {
+  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  setLedgerMemCache(orgId, { transactions });
   updateActiveOrg((org) => ({ ...org, transactions }));
-  storage.set(StorageKeys.TRANSACTIONS, transactions);
+  trySetLargeLocalStorage(StorageKeys.TRANSACTIONS, transactions);
   window.dispatchEvent(new Event('suez_data_updated'));
   // Dual-write to SQLite domain table (fire-and-forget; chunked for large ledgers)
-  const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
   syncToApi(async () => {
     for (let i = 0; i < transactions.length; i += SQLITE_TXN_UPSERT_CHUNK) {
       const chunk = transactions.slice(i, i + SQLITE_TXN_UPSERT_CHUNK);
@@ -709,9 +839,10 @@ export const setRevenueData = (data: RevenueData, options?: StorageSetOptions): 
   const rawExisting = getRevenueDataRaw();
   const archived = rawExisting.transactions.filter((t) => t.archived);
   const merged = { ...data, transactions: [...data.transactions, ...archived] };
-  updateActiveOrg((org) => ({ ...org, revenueData: merged }), options);
-  storage.set(StorageKeys.REVENUE_DATA, merged, options);
   const orgId = localStorage.getItem(StorageKeys.ACTIVE_ORG_ID) ?? 'default';
+  setLedgerMemCache(orgId, { revenue: merged });
+  updateActiveOrg((org) => ({ ...org, revenueData: merged }), options);
+  trySetLargeLocalStorage(StorageKeys.REVENUE_DATA, merged, options);
   syncToApi(() => api.setOrgData(orgId, StorageKeys.REVENUE_DATA, merged));
 };
 

@@ -4,6 +4,7 @@
 export { FILING_DISCLAIMER, FILING_DISCLAIMER_META_KEY, disclaimerCommentLines, withDisclaimerMeta } from './disclaimer';
 export {
   validateExport,
+  isLikelyGstin,
   Gstr1Schema,
   Gstr3bSchema,
   Form24qSchema,
