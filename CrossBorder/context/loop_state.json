@@ -89,12 +89,12 @@
       "people_stryker": 96.03
     },
     {
-      "cycle": 2,
-      "pass": "rw-009c-payroll-stryker",
+      "cycle": 3,
+      "pass": "rw-009d-filings-stryker",
       "composite": 90,
       "composite_capped_by_floor": 90,
       "marginal_gain": 0,
-      "payroll_stryker": 82.94
+      "filings_stryker": 82.99
     }
   ],
   "marginal_gain_last_cycle": 0,
@@ -111,8 +111,8 @@
   "final_package": "FINAL/",
   "notes": [
     "Gate 3 confirmed; local deploy live.",
-    "RW-009b people Stryker 96.03% done; RW-009c payroll/TDS 82.94% done.",
-    "Optional RW-009d filings generators; F-013b VoiceOver; ZAP residual."
+    "RW-009b people Stryker 96.03% done; RW-009c payroll/TDS 82.94% done; RW-009d filings 82.99% done.",
+    "Optional F-013b VoiceOver; ZAP residual."
   ],
   "deployment_status": "context/release/deployment_status.json"
 }

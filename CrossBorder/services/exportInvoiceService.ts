@@ -5,7 +5,7 @@
 
 import type { Invoice, InvoiceStatus } from '../types';
 import { RevenueCategory } from '../types';
-import { storage, StorageKeys, getCompanyProfile } from './storageService';
+import { storage, StorageKeys, getCompanyProfile, getInvoices } from './storageService';
 import { getEntityRegistry, getCurrentLutArn, formatRegisteredAddress, formatSubsidiaryAddress, getSubsidiaryPlaceOfSupply, LUT_DECLARATION } from './entityRegistryService';
 
 export const EXPORT_SAC_CODE = '998314';
@@ -21,6 +21,34 @@ export interface ExportInvoiceBankDetails {
   adCode: string;
 }
 
+export interface ExportInvoiceProvider {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  pin: string;
+  country: string;
+  gstin: string;
+  pan: string;
+  signatoryName: string;
+  signatoryTitle: string;
+}
+
+/** US (or other) service recipient shown on the commercial invoice. */
+export interface ExportInvoiceRecipient {
+  name: string;
+  /** Street / multi-line address body (excluding city/state/zip/country lines if those are filled separately). */
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  ein: string;
+  contactName: string;
+  email: string;
+  phone: string;
+}
+
 export interface ExportInvoiceConfig {
   lutNumber: string;
   paymentTerms: string;
@@ -33,7 +61,10 @@ export interface ExportInvoiceConfig {
   qty: number;
   rateUsd: number;
   useCalculatedAmount: boolean;
+  /** @deprecated Prefer `recipient.address` — kept for older saved configs. */
   recipientAddress: string;
+  recipient: ExportInvoiceRecipient;
+  provider: ExportInvoiceProvider;
   bank: ExportInvoiceBankDetails;
   signatoryTitle: string;
   lastSeq?: number;
@@ -51,6 +82,12 @@ export interface ExportInvoiceData {
   recipientAddress: string;
   recipientState: string;
   recipientEin: string;
+  recipientCity?: string;
+  recipientZip?: string;
+  recipientCountry?: string;
+  recipientContactName?: string;
+  recipientEmail?: string;
+  recipientPhone?: string;
   config: ExportInvoiceConfig;
   amountUsd: number;
 }
@@ -63,6 +100,8 @@ type InvoiceCompanyProfile = {
   city?: string;
   state?: string;
   pin?: string;
+  phone?: string;
+  email?: string;
   signatoryName?: string;
   signatoryDesignation?: string;
   bankName?: string;
@@ -72,28 +111,16 @@ type InvoiceCompanyProfile = {
   bankSWIFT?: string;
 };
 
-const DEFAULT_CONFIG: ExportInvoiceConfig = {
-  lutNumber: getCurrentLutArn(),
-  paymentTerms: 'Net 30',
-  placeOfSupply: getSubsidiaryPlaceOfSupply(),
-  agreementDate: '2026-01-01',
-  agreementReference: 'Intercompany Service Agreement',
-  serviceDescription: 'Information Technology (IT) design and development services',
-  sacCode: EXPORT_SAC_CODE,
-  purposeCode: EXPORT_PURPOSE_CODE,
-  qty: 1,
-  rateUsd: 5000,
-  useCalculatedAmount: true,
-  recipientAddress: formatSubsidiaryAddress(),
-  bank: {
-    beneficiaryName: '',
-    accountNumber: '',
-    bankName: '',
-    branchAddress: '',
-    swiftCode: '',
-    adCode: '',
-  },
-  signatoryTitle: 'Partner',
+type InvoiceClientProfile = {
+  name?: string;
+  gstin?: string;
+  pan?: string;
+  addr?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  contact?: string;
+  email?: string;
 };
 
 function loadInvoiceCompanyProfile(): Partial<InvoiceCompanyProfile> {
@@ -108,35 +135,277 @@ function loadInvoiceCompanyProfile(): Partial<InvoiceCompanyProfile> {
   return {};
 }
 
+/** Most recently saved Invoice → Client Address Book entry (or last ledger customer). */
+function loadInvoiceClientProfile(): Partial<InvoiceClientProfile> {
+  try {
+    const profiles = storage.get<InvoiceClientProfile[]>(StorageKeys.INVOICE_CLIENT_PROFILES);
+    if (profiles?.length) {
+      // Prefer profiles that look like US/export recipients (have name); take latest.
+      const withName = profiles.filter((p) => p?.name?.trim());
+      if (withName.length) return withName[withName.length - 1];
+      return profiles[profiles.length - 1];
+    }
+  } catch {
+    /* ignore */
+  }
+  // Fall back to last invoice on the active org ledger
+  try {
+    const list = getInvoices();
+    for (const inv of list) {
+      if (inv.customerName?.trim()) {
+        return {
+          name: inv.customerName,
+          addr: inv.customerAddress || '',
+          gstin: inv.customerGstin || '',
+          pan: '',
+          city: '',
+          state: '',
+          pin: '',
+          contact: '',
+          email: '',
+        };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+function providerFromEntity(): ExportInvoiceProvider {
+  const entity = getEntityRegistry();
+  const profile = getCompanyProfile();
+  const parent = profile?.parent;
+  const a = entity.registeredAddress;
+  return {
+    name: entity.legalName || parent?.name || '',
+    address: [a.line1, a.line2].filter(Boolean).join(', '),
+    city: a.city || parent?.city || '',
+    state: a.state || entity.state || parent?.state || 'Maharashtra',
+    pin: a.pin || parent?.pin || '',
+    country: 'India',
+    gstin: entity.gstin || parent?.taxId || '',
+    pan: entity.pan || parent?.pan || '',
+    signatoryName: '',
+    signatoryTitle: 'Partner',
+  };
+}
+
+function providerFromDocuments(): ExportInvoiceProvider {
+  const base = providerFromEntity();
+  const co = loadInvoiceCompanyProfile();
+  if (!co.name && !co.gstin && !co.addr1) return base;
+  return {
+    name: co.name || base.name,
+    address: co.addr1 || base.address,
+    city: co.city || base.city,
+    state: co.state || base.state,
+    pin: co.pin || base.pin,
+    country: 'India',
+    gstin: co.gstin || base.gstin,
+    pan: co.pan || base.pan,
+    signatoryName: co.signatoryName || base.signatoryName,
+    signatoryTitle: co.signatoryDesignation || base.signatoryTitle || 'Partner',
+  };
+}
+
+function recipientFromEntity(): ExportInvoiceRecipient {
+  const entity = getEntityRegistry();
+  const us = entity.subsidiary;
+  const profile = getCompanyProfile();
+  const subsidiary = profile?.subsidiary;
+  const op = us.operatingAddress;
+  return {
+    name: subsidiary?.name || us.legalName || '',
+    address: op?.city
+      ? ''
+      : (formatSubsidiaryAddress().split('\n').slice(1).join('\n') || ''),
+    city: op?.city || '',
+    state: op?.state || subsidiary?.state || us.stateOfIncorporation || '',
+    zip: op?.zip || '',
+    country: op?.country || 'USA',
+    ein: subsidiary?.taxId || us.ein || '',
+    contactName: '',
+    email: '',
+    phone: '',
+  };
+}
+
+/** Prefer Invoice module client profiles / prior invoices, then entity registry. */
+function recipientFromDocuments(): ExportInvoiceRecipient {
+  const base = recipientFromEntity();
+  const client = loadInvoiceClientProfile();
+  if (!client.name && !client.addr && !client.pan) return base;
+
+  // EIN for US recipients is often stored in pan or gstin field on client profiles
+  const ein = (client.pan || client.gstin || base.ein || '').trim();
+  return {
+    name: client.name || base.name,
+    address: client.addr || base.address,
+    city: client.city || base.city,
+    state: client.state || base.state,
+    zip: client.pin || base.zip,
+    country: base.country || 'USA',
+    ein: ein || base.ein,
+    contactName: client.contact || base.contactName,
+    email: client.email || base.email,
+    phone: base.phone,
+  };
+}
+
+function formatProviderAddressBlock(p: ExportInvoiceProvider): string {
+  const lines: string[] = [];
+  if (p.address?.trim()) lines.push(p.address.trim());
+  const cityLine = [p.city, p.state, p.pin].filter(Boolean).join(', ').trim();
+  if (cityLine) lines.push(cityLine);
+  if (p.country?.trim()) lines.push(p.country.trim());
+  return lines.join('\n');
+}
+
+/** Compose multi-line address block for invoice display. */
+export function formatRecipientAddressBlock(r: ExportInvoiceRecipient): string {
+  const lines: string[] = [];
+  if (r.address?.trim()) lines.push(r.address.trim());
+  const cityLine = [r.city, r.state, r.zip].filter(Boolean).join(', ').trim();
+  if (cityLine) lines.push(cityLine);
+  if (r.country?.trim()) lines.push(r.country.trim());
+  return lines.join('\n');
+}
+
+export function getDefaultRecipientDetails(): ExportInvoiceRecipient {
+  return recipientFromDocuments();
+}
+
+export function getDefaultProviderDetails(): ExportInvoiceProvider {
+  return providerFromDocuments();
+}
+
+function bankFromDocuments(provider: ExportInvoiceProvider): ExportInvoiceBankDetails {
+  const co = loadInvoiceCompanyProfile();
+  const entity = getEntityRegistry();
+  return {
+    beneficiaryName: co.bankAccName || provider.name || entity.legalName || '',
+    accountNumber: co.bankAccNum || '',
+    bankName: co.bankName || '',
+    branchAddress: co.bankBranch || [provider.city, provider.state].filter(Boolean).join(', '),
+    swiftCode: co.bankSWIFT || '',
+    adCode: '',
+  };
+}
+
+const DEFAULT_CONFIG: ExportInvoiceConfig = {
+  lutNumber: getCurrentLutArn(),
+  paymentTerms: 'Net 30',
+  placeOfSupply: getSubsidiaryPlaceOfSupply(),
+  agreementDate: '2026-01-01',
+  agreementReference: 'Intercompany Service Agreement',
+  serviceDescription: 'Information Technology (IT) design and development services',
+  sacCode: EXPORT_SAC_CODE,
+  purposeCode: EXPORT_PURPOSE_CODE,
+  qty: 1,
+  rateUsd: 5000,
+  useCalculatedAmount: true,
+  recipientAddress: '',
+  recipient: {
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    zip: '',
+    country: 'USA',
+    ein: '',
+    contactName: '',
+    email: '',
+    phone: '',
+  },
+  provider: {
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    pin: '',
+    country: 'India',
+    gstin: '',
+    pan: '',
+    signatoryName: '',
+    signatoryTitle: 'Partner',
+  },
+  bank: {
+    beneficiaryName: '',
+    accountNumber: '',
+    bankName: '',
+    branchAddress: '',
+    swiftCode: '',
+    adCode: '',
+  },
+  signatoryTitle: 'Partner',
+};
+
 export function getDefaultExportInvoiceConfig(
   saved?: Partial<ExportInvoiceConfig>,
 ): ExportInvoiceConfig {
-  const profile = getCompanyProfile();
-  const invoiceCo = loadInvoiceCompanyProfile();
-  const parent = profile?.parent;
-  const subsidiary = profile?.subsidiary;
-  const entity = getEntityRegistry();
-  const us = entity.subsidiary;
+  const docRecipient = recipientFromDocuments();
+  const docProvider = providerFromDocuments();
+  const docBank = bankFromDocuments(docProvider);
 
-  const recipientAddr =
-    saved?.recipientAddress || formatSubsidiaryAddress();
+  const mergedRecipient: ExportInvoiceRecipient = {
+    ...docRecipient,
+    ...(saved?.recipient || {}),
+  };
+  // Fill blank saved fields from documents (so old TP saves still pick up address book)
+  for (const key of Object.keys(docRecipient) as (keyof ExportInvoiceRecipient)[]) {
+    if (!String(mergedRecipient[key] || '').trim() && String(docRecipient[key] || '').trim()) {
+      mergedRecipient[key] = docRecipient[key];
+    }
+  }
+
+  if (!saved?.recipient && saved?.recipientAddress) {
+    const legacy = saved.recipientAddress.trim();
+    const parts = legacy.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (parts.length && !mergedRecipient.address) {
+      mergedRecipient.address = parts[0] === mergedRecipient.name
+        ? parts.slice(1).join('\n')
+        : legacy;
+    }
+  }
+
+  const mergedProvider: ExportInvoiceProvider = {
+    ...docProvider,
+    ...(saved?.provider || {}),
+  };
+  for (const key of Object.keys(docProvider) as (keyof ExportInvoiceProvider)[]) {
+    if (!String(mergedProvider[key] || '').trim() && String(docProvider[key] || '').trim()) {
+      mergedProvider[key] = docProvider[key];
+    }
+  }
+
+  const mergedBank: ExportInvoiceBankDetails = {
+    ...docBank,
+    ...(saved?.bank || {}),
+  };
+  for (const key of Object.keys(docBank) as (keyof ExportInvoiceBankDetails)[]) {
+    if (!String(mergedBank[key] || '').trim() && String(docBank[key] || '').trim()) {
+      mergedBank[key] = docBank[key];
+    }
+  }
+
+  const addressBlock = formatRecipientAddressBlock(mergedRecipient);
+  const signatoryTitle =
+    saved?.signatoryTitle ||
+    mergedProvider.signatoryTitle ||
+    docProvider.signatoryTitle ||
+    'Partner';
 
   return {
     ...DEFAULT_CONFIG,
     ...saved,
     lutNumber: saved?.lutNumber || getCurrentLutArn(),
     placeOfSupply: saved?.placeOfSupply || getSubsidiaryPlaceOfSupply(),
-    bank: {
-      ...DEFAULT_CONFIG.bank,
-      ...saved?.bank,
-      beneficiaryName: saved?.bank?.beneficiaryName || invoiceCo.bankAccName || entity.legalName || parent?.name || '',
-      accountNumber: saved?.bank?.accountNumber || invoiceCo.bankAccNum || '',
-      bankName: saved?.bank?.bankName || invoiceCo.bankName || '',
-      branchAddress: saved?.bank?.branchAddress || invoiceCo.bankBranch || `${entity.registeredAddress.city}, ${entity.registeredAddress.state}`,
-      swiftCode: saved?.bank?.swiftCode || invoiceCo.bankSWIFT || '',
-    },
-    recipientAddress: recipientAddr,
-    signatoryTitle: saved?.signatoryTitle || invoiceCo.signatoryDesignation || 'Partner',
+    bank: mergedBank,
+    recipient: mergedRecipient,
+    provider: mergedProvider,
+    recipientAddress: addressBlock || saved?.recipientAddress || formatSubsidiaryAddress(),
+    signatoryTitle,
   };
 }
 
@@ -219,22 +488,19 @@ export function buildExportInvoiceData(
   overrides?: Partial<Pick<ExportInvoiceData, 'invoiceNumber' | 'invoiceDate'>>,
 ): ExportInvoiceData {
   const profile = getCompanyProfile();
-  const invoiceCo = loadInvoiceCompanyProfile();
-  const parent = profile?.parent;
   const subsidiary = profile?.subsidiary;
   const entity = getEntityRegistry();
+  const us = entity.subsidiary;
 
   const amountUsd = config.useCalculatedAmount
     ? calculatedAmountUsd
     : config.qty * config.rateUsd;
 
-  const providerAddress = [
-    invoiceCo.addr1 || entity.registeredAddress.line1,
-    [invoiceCo.city || entity.registeredAddress.city, invoiceCo.state || entity.registeredAddress.state, invoiceCo.pin || entity.registeredAddress.pin].filter(Boolean).join(', '),
-    'Maharashtra, India',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const provider = config.provider?.name
+    ? config.provider
+    : { ...getDefaultProviderDetails(), ...(config.provider || {}) };
+  const providerAddress =
+    formatProviderAddressBlock(provider) || formatRegisteredAddress();
 
   const monthYear = new Date(overrides?.invoiceDate ?? new Date().toISOString().split('T')[0])
     .toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -243,19 +509,43 @@ export function buildExportInvoiceData(
     ? config.serviceDescription
     : `${config.serviceDescription} for the month of ${monthYear}.`;
 
+  const recipient = config.recipient?.name
+    ? config.recipient
+    : { ...getDefaultRecipientDetails(), ...(config.recipient || {}) };
+  const recipientAddress =
+    formatRecipientAddressBlock(recipient) ||
+    config.recipientAddress ||
+    formatSubsidiaryAddress();
+
+  const signatoryTitle =
+    config.signatoryTitle || provider.signatoryTitle || 'Partner';
+
   return {
     invoiceNumber: overrides?.invoiceNumber ?? generateExportInvoiceNumber(config.lastSeq),
     invoiceDate: overrides?.invoiceDate ?? new Date().toISOString().split('T')[0],
-    providerName: invoiceCo.name || entity.legalName || parent?.name || 'India LLP',
-    providerAddress: providerAddress || formatRegisteredAddress(),
-    providerState: invoiceCo.state || entity.registeredAddress.state || parent?.state || 'Maharashtra',
-    providerGstin: invoiceCo.gstin || entity.gstin || parent?.taxId || '',
-    providerPan: invoiceCo.pan || entity.pan || parent?.pan || '',
-    recipientName: subsidiary?.name || us.legalName,
-    recipientAddress: config.recipientAddress,
-    recipientState: us.operatingAddress?.state || subsidiary?.state || us.stateOfIncorporation,
-    recipientEin: subsidiary?.taxId || us.ein || '',
-    config: { ...config, serviceDescription: serviceLine },
+    providerName: provider.name || entity.legalName || 'India LLP',
+    providerAddress,
+    providerState: provider.state || entity.registeredAddress.state || 'Maharashtra',
+    providerGstin: provider.gstin || entity.gstin || '',
+    providerPan: provider.pan || entity.pan || '',
+    recipientName: recipient.name || subsidiary?.name || us.legalName,
+    recipientAddress,
+    recipientState: recipient.state || us.operatingAddress?.state || subsidiary?.state || us.stateOfIncorporation,
+    recipientEin: recipient.ein || subsidiary?.taxId || us.ein || '',
+    recipientCity: recipient.city || undefined,
+    recipientZip: recipient.zip || undefined,
+    recipientCountry: recipient.country || undefined,
+    recipientContactName: recipient.contactName || undefined,
+    recipientEmail: recipient.email || undefined,
+    recipientPhone: recipient.phone || undefined,
+    config: {
+      ...config,
+      provider,
+      recipient,
+      recipientAddress,
+      signatoryTitle,
+      serviceDescription: serviceLine,
+    },
     amountUsd,
   };
 }
@@ -270,7 +560,10 @@ function esc(s: string): string {
 
 export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
   const { config } = data;
-  const signatory = loadInvoiceCompanyProfile().signatoryName || 'Authorized Signatory';
+  const signatory =
+    config.provider?.signatoryName ||
+    loadInvoiceCompanyProfile().signatoryName ||
+    'Authorized Signatory';
   const agreementRef = `Reference: ${config.agreementReference} dated ${formatInvoiceDate(config.agreementDate)}.`;
 
   return `<!DOCTYPE html>
@@ -324,6 +617,9 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
     <h3>To (Service Recipient)</h3>
     <p><strong>${esc(data.recipientName)}</strong></p>
     <p>${esc(data.recipientAddress).replace(/\n/g, '<br>')}</p>
+    ${data.recipientContactName ? `<p><strong>Contact:</strong> ${esc(data.recipientContactName)}</p>` : ''}
+    ${data.recipientEmail ? `<p><strong>Email:</strong> ${esc(data.recipientEmail)}</p>` : ''}
+    ${data.recipientPhone ? `<p><strong>Phone:</strong> ${esc(data.recipientPhone)}</p>` : ''}
     <p><strong>EIN:</strong> ${esc(data.recipientEin || '[US Employer Identification Number]')}</p>
   </div>
 

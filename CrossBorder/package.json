@@ -28,7 +28,8 @@
     "security:report": "tsx scripts/security-report.ts",
     "server": "tsx --env-file-if-exists=.env server/index.ts",
     "test:mutation:payroll": "stryker run stryker.payroll.config.mjs",
-    "test:mutation:people": "stryker run stryker.people.config.mjs"
+    "test:mutation:people": "stryker run stryker.people.config.mjs",
+    "test:mutation:filings": "stryker run stryker.filings.config.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

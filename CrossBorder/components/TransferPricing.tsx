@@ -10,7 +10,11 @@ import {
 } from '../services/storageService';
 import {
   type ExportInvoiceConfig,
+  type ExportInvoiceProvider,
+  type ExportInvoiceRecipient,
   getDefaultExportInvoiceConfig,
+  getDefaultProviderDetails,
+  getDefaultRecipientDetails,
   buildExportInvoiceData,
   openExportInvoicePrint,
   buildInvoiceRecordFromExport,
@@ -75,6 +79,88 @@ const TransferPricing: React.FC = () => {
     value: ExportInvoiceConfig['bank'][K],
   ) => {
     setExportConfig((prev) => ({ ...prev, bank: { ...prev.bank, [key]: value } }));
+  };
+
+  const updateRecipient = <K extends keyof ExportInvoiceRecipient>(
+    key: K,
+    value: ExportInvoiceRecipient[K],
+  ) => {
+    setExportConfig((prev) => ({
+      ...prev,
+      recipient: { ...(prev.recipient || getDefaultRecipientDetails()), [key]: value },
+    }));
+  };
+
+  const updateProvider = <K extends keyof ExportInvoiceProvider>(
+    key: K,
+    value: ExportInvoiceProvider[K],
+  ) => {
+    setExportConfig((prev) => ({
+      ...prev,
+      provider: { ...(prev.provider || getDefaultProviderDetails()), [key]: value },
+      ...(key === 'signatoryTitle' ? { signatoryTitle: value as string } : {}),
+      ...(key === 'name' && !prev.bank.beneficiaryName.trim()
+        ? { bank: { ...prev.bank, beneficiaryName: value as string } }
+        : {}),
+    }));
+  };
+
+  const handleFillRecipientFromDocuments = () => {
+    setExportConfig((prev) => ({
+      ...prev,
+      recipient: getDefaultRecipientDetails(),
+    }));
+    showSuccess('Service recipient loaded from earlier invoice documents.');
+  };
+
+  const handleFillProviderFromDocuments = () => {
+    const provider = getDefaultProviderDetails();
+    setExportConfig((prev) => ({
+      ...prev,
+      provider,
+      signatoryTitle: provider.signatoryTitle || prev.signatoryTitle,
+      bank: {
+        ...prev.bank,
+        beneficiaryName: prev.bank.beneficiaryName || provider.name,
+      },
+    }));
+    showSuccess('Service provider loaded from earlier invoice documents.');
+  };
+
+  const handleClearRecipient = () => {
+    setExportConfig((prev) => ({
+      ...prev,
+      recipient: {
+        name: '',
+        address: '',
+        city: '',
+        state: '',
+        zip: '',
+        country: 'USA',
+        ein: '',
+        contactName: '',
+        email: '',
+        phone: '',
+      },
+    }));
+  };
+
+  const handleClearProvider = () => {
+    setExportConfig((prev) => ({
+      ...prev,
+      provider: {
+        name: '',
+        address: '',
+        city: '',
+        state: '',
+        pin: '',
+        country: 'India',
+        gstin: '',
+        pan: '',
+        signatoryName: '',
+        signatoryTitle: 'Partner',
+      },
+    }));
   };
 
   const showSuccess = (msg: string) => {
@@ -354,6 +440,173 @@ const TransferPricing: React.FC = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="font-bold text-slate-900">Service Provider</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    From party on the commercial invoice. Defaults from Invoice → Company profile / entity registry.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFillProviderFromDocuments}
+                    className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 text-slate-700"
+                  >
+                    Fill from documents
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearProvider}
+                    className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className={labelClass}>Legal Name</label>
+                  <input
+                    className={inputClass}
+                    value={exportConfig.provider?.name || ''}
+                    onChange={(e) => updateProvider('name', e.target.value)}
+                    placeholder="e.g. India LLP"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Street Address</label>
+                  <textarea
+                    className={`${inputClass} min-h-[64px]`}
+                    value={exportConfig.provider?.address || ''}
+                    onChange={(e) => updateProvider('address', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>City</label>
+                  <input className={inputClass} value={exportConfig.provider?.city || ''} onChange={(e) => updateProvider('city', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>State</label>
+                  <input className={inputClass} value={exportConfig.provider?.state || ''} onChange={(e) => updateProvider('state', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>PIN</label>
+                  <input className={inputClass} value={exportConfig.provider?.pin || ''} onChange={(e) => updateProvider('pin', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Country</label>
+                  <input className={inputClass} value={exportConfig.provider?.country || ''} onChange={(e) => updateProvider('country', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>GSTIN</label>
+                  <input className={inputClass} value={exportConfig.provider?.gstin || ''} onChange={(e) => updateProvider('gstin', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>PAN</label>
+                  <input className={inputClass} value={exportConfig.provider?.pan || ''} onChange={(e) => updateProvider('pan', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Signatory Name</label>
+                  <input className={inputClass} value={exportConfig.provider?.signatoryName || ''} onChange={(e) => updateProvider('signatoryName', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Signatory Title</label>
+                  <input className={inputClass} value={exportConfig.provider?.signatoryTitle || exportConfig.signatoryTitle || ''} onChange={(e) => updateProvider('signatoryTitle', e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="font-bold text-slate-900">Service Recipient</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    To party on the commercial invoice. Defaults from Invoice → Client address book / prior invoices.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFillRecipientFromDocuments}
+                    className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 text-slate-700"
+                  >
+                    Fill from documents
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearRecipient}
+                    className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className={labelClass}>Legal / Trade Name</label>
+                  <input
+                    className={inputClass}
+                    value={exportConfig.recipient?.name || ''}
+                    onChange={(e) => updateRecipient('name', e.target.value)}
+                    placeholder="e.g. Systemdr, Inc."
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Street Address</label>
+                  <textarea
+                    className={`${inputClass} min-h-[64px]`}
+                    value={exportConfig.recipient?.address || ''}
+                    onChange={(e) => updateRecipient('address', e.target.value)}
+                    placeholder="Street, suite, registered agent line…"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>City</label>
+                  <input className={inputClass} value={exportConfig.recipient?.city || ''} onChange={(e) => updateRecipient('city', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>State / Province</label>
+                  <input className={inputClass} value={exportConfig.recipient?.state || ''} onChange={(e) => updateRecipient('state', e.target.value)} placeholder="e.g. Delaware" />
+                </div>
+                <div>
+                  <label className={labelClass}>ZIP / Postal Code</label>
+                  <input className={inputClass} value={exportConfig.recipient?.zip || ''} onChange={(e) => updateRecipient('zip', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Country</label>
+                  <input className={inputClass} value={exportConfig.recipient?.country || ''} onChange={(e) => updateRecipient('country', e.target.value)} />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>EIN / Tax ID</label>
+                  <input
+                    className={inputClass}
+                    value={exportConfig.recipient?.ein || ''}
+                    onChange={(e) => updateRecipient('ein', e.target.value)}
+                    placeholder="US Employer Identification Number"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Contact Name</label>
+                  <input className={inputClass} value={exportConfig.recipient?.contactName || ''} onChange={(e) => updateRecipient('contactName', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Phone</label>
+                  <input className={inputClass} value={exportConfig.recipient?.phone || ''} onChange={(e) => updateRecipient('phone', e.target.value)} />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Email</label>
+                  <input
+                    type="email"
+                    className={inputClass}
+                    value={exportConfig.recipient?.email || ''}
+                    onChange={(e) => updateRecipient('email', e.target.value)}
+                  />
+                </div>
               </div>
             </div>
 

@@ -76,6 +76,9 @@ const ExportInvoicePreview: React.FC<ExportInvoicePreviewProps> = ({ data, compa
         <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#64748b', fontWeight: 600, marginBottom: 4 }}>To (Service Recipient)</div>
         <div style={{ fontWeight: 700 }}>{data.recipientName}</div>
         <div style={{ whiteSpace: 'pre-line' }}>{data.recipientAddress}</div>
+        {data.recipientContactName ? <div><strong>Contact:</strong> {data.recipientContactName}</div> : null}
+        {data.recipientEmail ? <div><strong>Email:</strong> {data.recipientEmail}</div> : null}
+        {data.recipientPhone ? <div><strong>Phone:</strong> {data.recipientPhone}</div> : null}
         <div><strong>EIN:</strong> {data.recipientEin || '[US Employer Identification Number]'}</div>
       </div>
 
@@ -136,6 +139,9 @@ const ExportInvoicePreview: React.FC<ExportInvoicePreviewProps> = ({ data, compa
 
       <div style={{ marginTop: 24 }}>
         <div style={{ fontWeight: 600 }}>Authorized Signatory</div>
+        {config.provider?.signatoryName ? (
+          <div style={{ marginTop: 8 }}>{config.provider.signatoryName}</div>
+        ) : null}
         <div style={{ borderTop: '1px solid #334155', width: 200, marginTop: 32, paddingTop: 6 }}>
           <strong>{config.signatoryTitle}</strong>, {data.providerName}
         </div>
