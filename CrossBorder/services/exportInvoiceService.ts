@@ -223,6 +223,7 @@ export function buildExportInvoiceData(
   const parent = profile?.parent;
   const subsidiary = profile?.subsidiary;
   const entity = getEntityRegistry();
+  const us = entity.subsidiary;
 
   const amountUsd = config.useCalculatedAmount
     ? calculatedAmountUsd
