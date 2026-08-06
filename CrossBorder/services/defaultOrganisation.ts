@@ -11,12 +11,11 @@ import {
   getInvoiceClientProfile,
   getVaultDocumentEntries,
   getEntityRegistry,
-  formatSubsidiaryAddress,
-  getSubsidiaryPlaceOfSupply,
 } from './entityRegistryService';
+import { getCommercialInvoiceDefaults } from './exportInvoiceService';
 import type { ConfigExportPayload } from './storageService';
 
-export const DEFAULT_ORG_VERSION = '7';
+export const DEFAULT_ORG_VERSION = '9';
 
 export function buildDefaultOrganisationPayload(): ConfigExportPayload {
   const template = orgTemplate as ConfigExportPayload;
@@ -45,10 +44,14 @@ export function buildDefaultOrganisationPayload(): ConfigExportPayload {
   data.suez_vault = getVaultDocumentEntries();
 
   const tp = org.transferPricing as Record<string, unknown> | undefined;
-  if (tp?.exportInvoice && typeof tp.exportInvoice === 'object') {
-    const exportInv = tp.exportInvoice as Record<string, unknown>;
-    exportInv.recipientAddress = formatSubsidiaryAddress();
-    exportInv.placeOfSupply = getSubsidiaryPlaceOfSupply();
+  if (tp) {
+    const defaults = getCommercialInvoiceDefaults({
+      billingPeriod: 'August 2026',
+      lastSeq: 1,
+    });
+    tp.exportInvoice = defaults;
+    tp.activeProviderId = 'sp-default-exp-2026-001';
+    tp.activeRecipientId = 'sr-default-exp-2026-001';
   }
 
   orgs.organisations[activeId] = org;

@@ -94,6 +94,8 @@ export type EntityRegistry = {
   panIssueDate: string;
   tan: string;
   llpin: string;
+  /** DGFT Import Export Code when registered */
+  iec?: string;
   fillipReference: string;
   incorporationDate: string;
   incorporationPlace: string;
@@ -174,23 +176,23 @@ export function getSubsidiaryPlaceOfSupply(): string {
   return `${registry.subsidiary.stateOfIncorporation}, USA`;
 }
 
-/** Invoice editor client profile — US service recipient (C-Corp) */
+/** Invoice editor client profile — US service recipient from EXP-2026-001 */
 export function getInvoiceClientProfile() {
   const s = registry.subsidiary;
-  const op = s.operatingAddress;
+  const reg = s.registeredAddress;
   return {
     id: 'systemdr-inc-default',
-    label: `${s.legalName} (Default)`,
+    label: `${s.legalName} (Default — EXP-2026-001)`,
     name: s.legalName,
     gstin: '',
-    pan: '',
-    addr: op?.city ? `${op.city}, ${op.state}` : `Incorporated in ${s.stateOfIncorporation}`,
-    city: op?.city ?? '',
-    state: op?.state ?? s.stateOfIncorporation,
-    pin: op?.zip ?? '',
+    pan: s.ein || '',
+    addr: reg?.line1 || '131 Continental Dr, Suite 305',
+    city: reg?.city || 'Newark',
+    state: reg?.state || s.stateOfIncorporation || 'Delaware',
+    pin: reg?.zip || '19713',
     stateCode: '',
-    contact: '',
-    email: '',
+    contact: 'Sumedh Shende',
+    email: 'corp@systemdrd.com',
   };
 }
 
@@ -215,18 +217,20 @@ export function getParentEntityProfile() {
   };
 }
 
-/** Invoice editor company profile snapshot */
+/** Invoice editor company profile snapshot — from EXP-2026-001 */
 export function getInvoiceCompanyProfile() {
   const r = registry;
   const a = r.registeredAddress;
   return {
     id: 'systemdr-llp-default',
-    label: 'SYSTEMDR LLP (Default)',
+    label: 'SYSTEMDR LLP (Default — EXP-2026-001)',
     name: r.legalName,
     tagline: 'Information Technology & Software Services',
     gstin: r.gstin,
     pan: r.pan,
     cin: r.llpin,
+    llpin: r.llpin,
+    iec: r.iec || '',
     addr1: [a.line1, a.line2].filter(Boolean).join(', '),
     city: a.city,
     state: a.state,
@@ -235,16 +239,16 @@ export function getInvoiceCompanyProfile() {
     phone: '',
     email: '',
     website: '',
-    signatoryName: '',
-    signatoryDesignation: 'Partner',
-    bankName: '',
+    signatoryName: 'Sumedh Shende',
+    signatoryDesignation: 'Designated Partner',
+    bankName: 'ICICI Bank',
     bankAccName: r.legalName,
-    bankAccNum: '',
+    bankAccNum: '575705000010',
     bankAccType: 'Current',
     bankIFSC: '',
-    bankBranch: `${a.city}, ${a.state}`,
+    bankBranch: 'Ajani, Wardha Road, Nagpur, Maharashtra, 440015',
     bankUPI: '',
-    bankSWIFT: '',
+    bankSWIFT: 'ICICINBBCTS',
   };
 }
 

@@ -53,6 +53,7 @@ const ExportInvoicePreview: React.FC<ExportInvoicePreviewProps> = ({ data, compa
             ['Invoice Number', data.invoiceNumber],
             ['Invoice Date', formatInvoiceDate(data.invoiceDate)],
             ['Payment Terms', config.paymentTerms],
+            ['Billing Period', config.billingPeriod || '[Month Year]'],
             ['Place of Supply', config.placeOfSupply],
             ['LUT Number', config.lutNumber || '[Insert Your 2026-2027 ARN Number]'],
           ].map(([label, value]) => (
@@ -64,22 +65,33 @@ const ExportInvoicePreview: React.FC<ExportInvoicePreviewProps> = ({ data, compa
         </tbody>
       </table>
 
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#64748b', fontWeight: 600, marginBottom: 4 }}>From (Service Provider)</div>
-        <div style={{ fontWeight: 700 }}>{data.providerName}</div>
-        <div style={{ whiteSpace: 'pre-line' }}>{data.providerAddress}</div>
-        <div><strong>GSTIN:</strong> {data.providerGstin || '[Your 15-digit GST Number]'}</div>
-        <div><strong>PAN:</strong> {data.providerPan || '[LLP PAN Number]'}</div>
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#64748b', fontWeight: 600, marginBottom: 4 }}>To (Service Recipient)</div>
-        <div style={{ fontWeight: 700 }}>{data.recipientName}</div>
-        <div style={{ whiteSpace: 'pre-line' }}>{data.recipientAddress}</div>
-        {data.recipientContactName ? <div><strong>Contact:</strong> {data.recipientContactName}</div> : null}
-        {data.recipientEmail ? <div><strong>Email:</strong> {data.recipientEmail}</div> : null}
-        {data.recipientPhone ? <div><strong>Phone:</strong> {data.recipientPhone}</div> : null}
-        <div><strong>EIN:</strong> {data.recipientEin || '[US Employer Identification Number]'}</div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: compact ? 12 : 16,
+          marginBottom: 16,
+          alignItems: 'start',
+        }}
+      >
+        <div style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: compact ? 8 : 10 }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#64748b', fontWeight: 600, marginBottom: 4 }}>From (Service Provider)</div>
+          <div style={{ fontWeight: 700 }}>{data.providerName}</div>
+          <div style={{ whiteSpace: 'pre-line' }}>{data.providerAddress}</div>
+          <div><strong>GSTIN:</strong> {data.providerGstin || '[Your 15-digit GST Number]'}</div>
+          <div><strong>PAN:</strong> {data.providerPan || '[LLP PAN Number]'}</div>
+          <div><strong>LLP Incorporation Code:</strong> {data.providerLlpin || config.provider?.llpin || '[LLPIN]'}</div>
+          <div><strong>Import / Export Code:</strong> {data.providerIec || config.provider?.iec || '[IEC Number]'}</div>
+        </div>
+        <div style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: compact ? 8 : 10 }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#64748b', fontWeight: 600, marginBottom: 4 }}>To (Service Recipient)</div>
+          <div style={{ fontWeight: 700 }}>{data.recipientName}</div>
+          <div style={{ whiteSpace: 'pre-line' }}>{data.recipientAddress}</div>
+          {data.recipientContactName ? <div><strong>Contact:</strong> {data.recipientContactName}</div> : null}
+          {data.recipientEmail ? <div><strong>Email:</strong> {data.recipientEmail}</div> : null}
+          {data.recipientPhone ? <div><strong>Phone:</strong> {data.recipientPhone}</div> : null}
+          <div><strong>EIN:</strong> {data.recipientEin || '[US Employer Identification Number]'}</div>
+        </div>
       </div>
 
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Service Description</div>

@@ -30,6 +30,10 @@ export interface ExportInvoiceProvider {
   country: string;
   gstin: string;
   pan: string;
+  /** LLP Incorporation Number (LLPIN), e.g. ACP-3421 */
+  llpin: string;
+  /** DGFT Import Export Code (IEC) */
+  iec: string;
   signatoryName: string;
   signatoryTitle: string;
 }
@@ -49,9 +53,393 @@ export interface ExportInvoiceRecipient {
   phone: string;
 }
 
+/** Named, reusable service recipient saved for future TP invoices. */
+export interface ServiceRecipientProfile extends ExportInvoiceRecipient {
+  id: string;
+  label: string;
+}
+
+/** Named, reusable service provider (From party) saved for future TP invoices. */
+export interface ServiceProviderProfile extends ExportInvoiceProvider {
+  id: string;
+  label: string;
+}
+
+export function emptyExportInvoiceRecipient(): ExportInvoiceRecipient {
+  return {
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    zip: '',
+    country: 'USA',
+    ein: '',
+    contactName: '',
+    email: '',
+    phone: '',
+  };
+}
+
+export function emptyExportInvoiceProvider(): ExportInvoiceProvider {
+  return {
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    pin: '',
+    country: 'India',
+    gstin: '',
+    pan: '',
+    llpin: '',
+    iec: '',
+    signatoryName: '',
+    signatoryTitle: 'Partner',
+  };
+}
+
+type InvoiceClientProfile = {
+  name?: string;
+  gstin?: string;
+  pan?: string;
+  addr?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  contact?: string;
+  email?: string;
+};
+
+type InvoiceCompanyBookProfile = {
+  name?: string;
+  label?: string;
+  gstin?: string;
+  pan?: string;
+  /** Often stores LLPIN for LLPs (legacy invoice field name). */
+  cin?: string;
+  llpin?: string;
+  iec?: string;
+  addr1?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  signatoryName?: string;
+  signatoryDesignation?: string;
+};
+
+/** All Invoice → Client Address Book entries as TP service recipient profiles. */
+export function listInvoiceClientRecipients(): ServiceRecipientProfile[] {
+  try {
+    const profiles = storage.get<InvoiceClientProfile[]>(StorageKeys.INVOICE_CLIENT_PROFILES) || [];
+    return profiles
+      .filter((p) => p?.name?.trim())
+      .map((p, i) => ({
+        id: `inv-client-${i}-${(p.name || '').trim().toLowerCase().replace(/\s+/g, '-')}`,
+        label: (p.name || '').trim(),
+        name: (p.name || '').trim(),
+        address: p.addr || '',
+        city: p.city || '',
+        state: p.state || '',
+        zip: p.pin || '',
+        country: 'USA',
+        ein: (p.pan || p.gstin || '').trim(),
+        contactName: p.contact || '',
+        email: p.email || '',
+        phone: '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** All Invoice → Company profiles as TP service provider profiles. */
+export function listInvoiceCompanyProviders(): ServiceProviderProfile[] {
+  try {
+    const profiles = storage.get<InvoiceCompanyBookProfile[]>(StorageKeys.INVOICE_COMPANY_PROFILES) || [];
+    const active = storage.get<InvoiceCompanyBookProfile>(StorageKeys.INVOICE_ACTIVE_COMPANY);
+    const list = [...profiles];
+    if (active?.name?.trim() && !list.some((p) => (p.name || '').trim().toLowerCase() === active.name!.trim().toLowerCase())) {
+      list.push(active);
+    }
+    return list
+      .filter((p) => p?.name?.trim())
+      .map((p, i) => ({
+        id: `inv-co-${i}-${(p.name || '').trim().toLowerCase().replace(/\s+/g, '-')}`,
+        label: (p.label || p.name || '').trim(),
+        name: (p.name || '').trim(),
+        address: p.addr1 || '',
+        city: p.city || '',
+        state: p.state || '',
+        pin: p.pin || '',
+        country: 'India',
+        gstin: p.gstin || '',
+        pan: p.pan || '',
+        llpin: p.llpin || p.cin || '',
+        iec: p.iec || '',
+        signatoryName: p.signatoryName || '',
+        signatoryTitle: p.signatoryDesignation || 'Partner',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export function recipientProfileFromForm(
+  recipient: ExportInvoiceRecipient,
+  label?: string,
+  id?: string,
+): ServiceRecipientProfile {
+  const name = recipient.name.trim();
+  return {
+    id: id || `sr-${Date.now()}`,
+    label: (label || name || 'Untitled recipient').trim(),
+    ...recipient,
+    name,
+  };
+}
+
+export function providerProfileFromForm(
+  provider: ExportInvoiceProvider,
+  label?: string,
+  id?: string,
+): ServiceProviderProfile {
+  const name = provider.name.trim();
+  return {
+    id: id || `sp-${Date.now()}`,
+    label: (label || name || 'Untitled provider').trim(),
+    ...provider,
+    name,
+  };
+}
+
+/** Full snapshot of a generated TP commercial invoice for reload / edit / delete. */
+export interface TransferPricingInvoiceRecord {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amountUsd: number;
+  usRevenue: number;
+  usExpenses: number;
+  margin: number;
+  exportConfig: ExportInvoiceConfig;
+  providerId?: string | null;
+  recipientId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function buildTransferPricingInvoiceRecord(input: {
+  id?: string;
+  createdAt?: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amountUsd: number;
+  usRevenue: number;
+  usExpenses: number;
+  margin: number;
+  exportConfig: ExportInvoiceConfig;
+  providerId?: string | null;
+  recipientId?: string | null;
+}): TransferPricingInvoiceRecord {
+  const now = new Date().toISOString();
+  return {
+    id: input.id || `tp-inv-${Date.now()}`,
+    invoiceNumber: input.invoiceNumber,
+    invoiceDate: input.invoiceDate,
+    amountUsd: input.amountUsd,
+    usRevenue: input.usRevenue,
+    usExpenses: input.usExpenses,
+    margin: input.margin,
+    exportConfig: JSON.parse(JSON.stringify(input.exportConfig)) as ExportInvoiceConfig,
+    providerId: input.providerId ?? null,
+    recipientId: input.recipientId ?? null,
+    createdAt: input.createdAt || now,
+    updatedAt: now,
+  };
+}
+
+/** Upsert by id, or by invoice number when editing an existing generation. */
+export function upsertTransferPricingInvoice(
+  list: TransferPricingInvoiceRecord[],
+  record: TransferPricingInvoiceRecord,
+): TransferPricingInvoiceRecord[] {
+  const byId = list.findIndex((r) => r.id === record.id);
+  if (byId >= 0) {
+    const next = [...list];
+    next[byId] = { ...record, createdAt: list[byId].createdAt, updatedAt: new Date().toISOString() };
+    return next;
+  }
+  const byNumber = list.findIndex((r) => r.invoiceNumber === record.invoiceNumber);
+  if (byNumber >= 0) {
+    const next = [...list];
+    next[byNumber] = {
+      ...record,
+      id: list[byNumber].id,
+      createdAt: list[byNumber].createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    return next;
+  }
+  return [record, ...list];
+}
+
+export function deleteTransferPricingInvoice(
+  list: TransferPricingInvoiceRecord[],
+  id: string,
+): TransferPricingInvoiceRecord[] {
+  return list.filter((r) => r.id !== id);
+}
+
+/** Canonical EXP-2026-001 snapshot for history seeding. */
+export function getDefaultCommercialInvoiceRecord(): TransferPricingInvoiceRecord {
+  const exportConfig = getCommercialInvoiceDefaults({
+    billingPeriod: 'August 2026',
+    lastSeq: 1,
+  });
+  return buildTransferPricingInvoiceRecord({
+    id: 'tp-inv-exp-2026-001',
+    createdAt: '2026-08-05T00:00:00.000Z',
+    invoiceNumber: 'EXP-2026-001',
+    invoiceDate: '2026-08-05',
+    amountUsd: exportConfig.rateUsd,
+    usRevenue: exportConfig.rateUsd,
+    usExpenses: 0,
+    margin: 0,
+    exportConfig,
+    providerId: DEFAULT_TP_PROVIDER_ID,
+    recipientId: DEFAULT_TP_RECIPIENT_ID,
+  });
+}
+
+/** Rebuild a TP history row from an Invoice Ledger export invoice. */
+export function transferPricingRecordFromLedgerInvoice(inv: Invoice): TransferPricingInvoiceRecord {
+  const line = inv.lines?.[0];
+  const amountUsd = inv.currency === 'USD' ? inv.total : inv.total;
+  const exportConfig = getCommercialInvoiceDefaults({
+    serviceDescription: line?.description,
+    placeOfSupply: inv.placeOfSupply,
+    rateUsd: amountUsd,
+    qty: line?.quantity ?? 1,
+    recipient: {
+      ...COMMERCIAL_INVOICE_PARTY_DEFAULTS.recipient,
+      name: inv.customerName || COMMERCIAL_INVOICE_PARTY_DEFAULTS.recipient.name,
+      address: inv.customerAddress || COMMERCIAL_INVOICE_PARTY_DEFAULTS.recipient.address,
+    },
+  });
+  const rawId = inv.id || `ledger-${inv.number}`;
+  const id = rawId.startsWith('exp-') ? rawId.slice(4) : `tp-ledger-${rawId}`;
+  return buildTransferPricingInvoiceRecord({
+    id,
+    createdAt: inv.createdAt,
+    invoiceNumber: inv.number,
+    invoiceDate: inv.date,
+    amountUsd,
+    usRevenue: amountUsd,
+    usExpenses: 0,
+    margin: 0,
+    exportConfig,
+    providerId: DEFAULT_TP_PROVIDER_ID,
+    recipientId: DEFAULT_TP_RECIPIENT_ID,
+  });
+}
+
+/**
+ * Ensure TP Saved Invoices has rows to show.
+ * Prefer existing history; otherwise backfill from Invoice Ledger EXP/* exports;
+ * otherwise seed the canonical EXP-2026-001 default.
+ */
+export function ensureCommercialInvoiceHistory(
+  existing?: TransferPricingInvoiceRecord[] | null,
+): TransferPricingInvoiceRecord[] {
+  const list = (existing || []).filter((r) => r?.invoiceNumber && r?.exportConfig);
+  if (list.length > 0) return list;
+
+  const fromLedger: TransferPricingInvoiceRecord[] = [];
+  try {
+    const ledger = getInvoices().filter(
+      (i) =>
+        /^EXP-/i.test(i.number || '') ||
+        i.incomeType === 'export_of_services' ||
+        (i.id || '').startsWith('exp-'),
+    );
+    const byNumber = new Map<string, Invoice>();
+    for (const inv of ledger) {
+      const prev = byNumber.get(inv.number);
+      if (!prev || (inv.updatedAt || '') >= (prev.updatedAt || '')) {
+        byNumber.set(inv.number, inv);
+      }
+    }
+    for (const inv of byNumber.values()) {
+      fromLedger.push(transferPricingRecordFromLedgerInvoice(inv));
+    }
+  } catch {
+    /* ledger unavailable */
+  }
+
+  if (fromLedger.length > 0) {
+    return fromLedger.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }
+
+  return [getDefaultCommercialInvoiceRecord()];
+}
+
+/** Upsert provider/recipient profiles from the current invoice form (keeps modifications). */
+export function syncPartyProfilesFromInvoice(input: {
+  providers: ServiceProviderProfile[];
+  recipients: ServiceRecipientProfile[];
+  provider: ExportInvoiceProvider;
+  recipient: ExportInvoiceRecipient;
+  activeProviderId?: string | null;
+  activeRecipientId?: string | null;
+}): {
+  providers: ServiceProviderProfile[];
+  recipients: ServiceRecipientProfile[];
+  activeProviderId: string | null;
+  activeRecipientId: string | null;
+} {
+  let providers = [...input.providers];
+  let recipients = [...input.recipients];
+  let activeProviderId = input.activeProviderId || null;
+  let activeRecipientId = input.activeRecipientId || null;
+
+  if (input.provider.name.trim()) {
+    const existing =
+      (activeProviderId && providers.find((p) => p.id === activeProviderId)) ||
+      providers.find((p) => p.name.trim().toLowerCase() === input.provider.name.trim().toLowerCase());
+    const profile = providerProfileFromForm(
+      input.provider,
+      existing?.label || input.provider.name.trim(),
+      existing?.id,
+    );
+    providers = [
+      ...providers.filter((p) => p.id !== profile.id && p.name.trim().toLowerCase() !== profile.name.toLowerCase()),
+      profile,
+    ];
+    activeProviderId = profile.id;
+  }
+
+  if (input.recipient.name.trim()) {
+    const existing =
+      (activeRecipientId && recipients.find((r) => r.id === activeRecipientId)) ||
+      recipients.find((r) => r.name.trim().toLowerCase() === input.recipient.name.trim().toLowerCase());
+    const profile = recipientProfileFromForm(
+      input.recipient,
+      existing?.label || input.recipient.name.trim(),
+      existing?.id,
+    );
+    recipients = [
+      ...recipients.filter((r) => r.id !== profile.id && r.name.trim().toLowerCase() !== profile.name.toLowerCase()),
+      profile,
+    ];
+    activeRecipientId = profile.id;
+  }
+
+  return { providers, recipients, activeProviderId, activeRecipientId };
+}
+
 export interface ExportInvoiceConfig {
   lutNumber: string;
   paymentTerms: string;
+  billingPeriod: string;
   placeOfSupply: string;
   agreementDate: string;
   agreementReference: string;
@@ -76,8 +464,10 @@ export interface ExportInvoiceData {
   providerName: string;
   providerAddress: string;
   providerState: string;
-  providerGstin: string;
+    providerGstin: string;
   providerPan: string;
+  providerLlpin?: string;
+  providerIec?: string;
   recipientName: string;
   recipientAddress: string;
   recipientState: string;
@@ -109,18 +499,6 @@ type InvoiceCompanyProfile = {
   bankAccNum?: string;
   bankBranch?: string;
   bankSWIFT?: string;
-};
-
-type InvoiceClientProfile = {
-  name?: string;
-  gstin?: string;
-  pan?: string;
-  addr?: string;
-  city?: string;
-  state?: string;
-  pin?: string;
-  contact?: string;
-  email?: string;
 };
 
 function loadInvoiceCompanyProfile(): Partial<InvoiceCompanyProfile> {
@@ -186,6 +564,8 @@ function providerFromEntity(): ExportInvoiceProvider {
     country: 'India',
     gstin: entity.gstin || parent?.taxId || '',
     pan: entity.pan || parent?.pan || '',
+    llpin: entity.llpin || parent?.llpin || '',
+    iec: entity.iec || '',
     signatoryName: '',
     signatoryTitle: 'Partner',
   };
@@ -204,6 +584,8 @@ function providerFromDocuments(): ExportInvoiceProvider {
     country: 'India',
     gstin: co.gstin || base.gstin,
     pan: co.pan || base.pan,
+    llpin: co.llpin || co.cin || base.llpin,
+    iec: co.iec || base.iec,
     signatoryName: co.signatoryName || base.signatoryName,
     signatoryTitle: co.signatoryDesignation || base.signatoryTitle || 'Partner',
   };
@@ -283,80 +665,174 @@ export function getDefaultProviderDetails(): ExportInvoiceProvider {
 function bankFromDocuments(provider: ExportInvoiceProvider): ExportInvoiceBankDetails {
   const co = loadInvoiceCompanyProfile();
   const entity = getEntityRegistry();
+  const defaults = COMMERCIAL_INVOICE_PARTY_DEFAULTS.bank;
   return {
-    beneficiaryName: co.bankAccName || provider.name || entity.legalName || '',
-    accountNumber: co.bankAccNum || '',
-    bankName: co.bankName || '',
-    branchAddress: co.bankBranch || [provider.city, provider.state].filter(Boolean).join(', '),
-    swiftCode: co.bankSWIFT || '',
-    adCode: '',
+    beneficiaryName: co.bankAccName || provider.name || entity.legalName || defaults.beneficiaryName,
+    accountNumber: co.bankAccNum || defaults.accountNumber,
+    bankName: co.bankName || defaults.bankName,
+    branchAddress: co.bankBranch || defaults.branchAddress,
+    swiftCode: co.bankSWIFT || defaults.swiftCode,
+    adCode: defaults.adCode,
   };
 }
 
-const DEFAULT_CONFIG: ExportInvoiceConfig = {
-  lutNumber: getCurrentLutArn(),
-  paymentTerms: 'Net 30',
-  placeOfSupply: getSubsidiaryPlaceOfSupply(),
-  agreementDate: '2026-01-01',
+/**
+ * Canonical commercial-invoice defaults verified from
+ * Commercial Invoice EXP-2026-001 (Domestic PDF, 2026-08-05).
+ * Used every time a new TP invoice is created.
+ */
+export const DEFAULT_TP_PROVIDER_ID = 'sp-default-exp-2026-001';
+export const DEFAULT_TP_RECIPIENT_ID = 'sr-default-exp-2026-001';
+
+export const COMMERCIAL_INVOICE_PARTY_DEFAULTS = {
+  provider: {
+    name: 'SYSTEMDR LLP',
+    address: 'P No.70, F No. 202, Green Planet colony Besa, Parvati Nagar, Besa Police Station',
+    city: 'Nagpur',
+    state: 'Maharashtra',
+    pin: '440027',
+    country: 'India',
+    gstin: '27AFQFS5950Q1ZU',
+    pan: 'AFQFS5950Q',
+    llpin: 'ACP-3421',
+    iec: '',
+    signatoryName: 'Sumedh Shende',
+    signatoryTitle: 'Designated Partner',
+  } satisfies ExportInvoiceProvider,
+  recipient: {
+    name: 'SystemDR, Inc.',
+    address: '131 Continental Dr, Suite 305',
+    city: 'Newark',
+    state: 'Delaware',
+    zip: '19713',
+    country: 'USA',
+    ein: '35-2939054',
+    contactName: 'Sumedh Shende',
+    email: 'corp@systemdrd.com',
+    phone: '+91 8767849570',
+  } satisfies ExportInvoiceRecipient,
+  bank: {
+    beneficiaryName: 'SYSTEMDR LLP',
+    accountNumber: '575705000010',
+    bankName: 'ICICI Bank',
+    branchAddress: 'Ajani, Wardha Road, Nagpur, Maharashtra, 440015',
+    swiftCode: 'ICICINBBCTS',
+    adCode: '63901XE',
+  } satisfies ExportInvoiceBankDetails,
+  serviceDescription:
+    'Software, Information Technology (IT), Courses & Lessons and Digital product design, development services for www.systemdrd.com. Technology Content services for 21 newsletters. https://systemdr.systemdrd.com, https://sdcourse.substack.com, https://aiamastery.substack.com, https://aieworks.substack.com, https://javatsc.substack.com, https://handsonkafka.substack.com',
   agreementReference: 'Intercompany Service Agreement',
-  serviceDescription: 'Information Technology (IT) design and development services',
+  agreementDate: '2026-01-01',
+  paymentTerms: 'Net 30',
+  lutNumber: 'AD270326080742Y',
+  placeOfSupply: 'Newark, Delaware, USA',
   sacCode: EXPORT_SAC_CODE,
   purposeCode: EXPORT_PURPOSE_CODE,
-  qty: 1,
-  rateUsd: 5000,
-  useCalculatedAmount: true,
-  recipientAddress: '',
-  recipient: {
-    name: '',
-    address: '',
-    city: '',
-    state: '',
-    zip: '',
-    country: 'USA',
-    ein: '',
-    contactName: '',
-    email: '',
-    phone: '',
-  },
-  provider: {
-    name: '',
-    address: '',
-    city: '',
-    state: '',
-    pin: '',
-    country: 'India',
-    gstin: '',
-    pan: '',
-    signatoryName: '',
-    signatoryTitle: 'Partner',
-  },
-  bank: {
-    beneficiaryName: '',
-    accountNumber: '',
-    bankName: '',
-    branchAddress: '',
-    swiftCode: '',
-    adCode: '',
-  },
-  signatoryTitle: 'Partner',
-};
+  rateUsd: 11875,
+} as const;
+
+export function getDefaultProviderProfile(): ServiceProviderProfile {
+  return {
+    id: DEFAULT_TP_PROVIDER_ID,
+    label: 'SYSTEMDR LLP (Default — EXP-2026-001)',
+    ...COMMERCIAL_INVOICE_PARTY_DEFAULTS.provider,
+  };
+}
+
+export function getDefaultRecipientProfile(): ServiceRecipientProfile {
+  return {
+    id: DEFAULT_TP_RECIPIENT_ID,
+    label: 'SystemDR, Inc. (Default — EXP-2026-001)',
+    ...COMMERCIAL_INVOICE_PARTY_DEFAULTS.recipient,
+  };
+}
+
+/** Full export config defaults for Create Invoice — always reloadable. */
+export function getCommercialInvoiceDefaults(
+  overrides?: Partial<ExportInvoiceConfig>,
+): ExportInvoiceConfig {
+  const d = COMMERCIAL_INVOICE_PARTY_DEFAULTS;
+  const billingPeriod =
+    (overrides?.billingPeriod || '').trim() ||
+    new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const fillProvider = (partial?: Partial<ExportInvoiceProvider>): ExportInvoiceProvider => {
+    const out = { ...d.provider };
+    if (!partial) return out;
+    for (const key of Object.keys(out) as (keyof ExportInvoiceProvider)[]) {
+      const v = partial[key];
+      if (typeof v === 'string' && v.trim()) out[key] = v;
+    }
+    return out;
+  };
+  const fillRecipient = (partial?: Partial<ExportInvoiceRecipient>): ExportInvoiceRecipient => {
+    const out = { ...d.recipient };
+    if (!partial) return out;
+    for (const key of Object.keys(out) as (keyof ExportInvoiceRecipient)[]) {
+      const v = partial[key];
+      if (typeof v === 'string' && v.trim()) out[key] = v;
+    }
+    return out;
+  };
+  const fillBank = (partial?: Partial<ExportInvoiceBankDetails>): ExportInvoiceBankDetails => {
+    const out = { ...d.bank };
+    if (!partial) return out;
+    for (const key of Object.keys(out) as (keyof ExportInvoiceBankDetails)[]) {
+      const v = partial[key];
+      if (typeof v === 'string' && v.trim()) out[key] = v;
+    }
+    return out;
+  };
+
+  const provider = fillProvider(overrides?.provider);
+  const recipient = fillRecipient(overrides?.recipient);
+  const bank = fillBank(overrides?.bank);
+
+  return {
+    lutNumber: (overrides?.lutNumber || '').trim() || d.lutNumber,
+    paymentTerms: (overrides?.paymentTerms || '').trim() || d.paymentTerms,
+    billingPeriod,
+    placeOfSupply: (overrides?.placeOfSupply || '').trim() || d.placeOfSupply,
+    agreementDate: (overrides?.agreementDate || '').trim() || d.agreementDate,
+    agreementReference: (overrides?.agreementReference || '').trim() || d.agreementReference,
+    serviceDescription: (overrides?.serviceDescription || '').trim() || d.serviceDescription,
+    sacCode: (overrides?.sacCode || '').trim() || d.sacCode,
+    purposeCode: (overrides?.purposeCode || '').trim() || d.purposeCode,
+    qty: overrides?.qty ?? 1,
+    rateUsd: overrides?.rateUsd ?? d.rateUsd,
+    useCalculatedAmount: overrides?.useCalculatedAmount ?? true,
+    recipientAddress: formatRecipientAddressBlock(recipient),
+    recipient,
+    provider,
+    bank,
+    signatoryTitle: (overrides?.signatoryTitle || '').trim() || provider.signatoryTitle,
+    lastSeq: overrides?.lastSeq,
+  };
+}
+
+const DEFAULT_CONFIG: ExportInvoiceConfig = getCommercialInvoiceDefaults();
 
 export function getDefaultExportInvoiceConfig(
   saved?: Partial<ExportInvoiceConfig>,
 ): ExportInvoiceConfig {
+  // Always start from verified EXP-2026-001 defaults, then layer saved/document values.
+  const base = getCommercialInvoiceDefaults();
   const docRecipient = recipientFromDocuments();
   const docProvider = providerFromDocuments();
   const docBank = bankFromDocuments(docProvider);
 
   const mergedRecipient: ExportInvoiceRecipient = {
+    ...base.recipient,
     ...docRecipient,
     ...(saved?.recipient || {}),
   };
-  // Fill blank saved fields from documents (so old TP saves still pick up address book)
-  for (const key of Object.keys(docRecipient) as (keyof ExportInvoiceRecipient)[]) {
-    if (!String(mergedRecipient[key] || '').trim() && String(docRecipient[key] || '').trim()) {
-      mergedRecipient[key] = docRecipient[key];
+  for (const key of Object.keys(base.recipient) as (keyof ExportInvoiceRecipient)[]) {
+    if (!String(mergedRecipient[key] || '').trim() && String(base.recipient[key] || '').trim()) {
+      mergedRecipient[key] = base.recipient[key];
     }
+  }
+  if (String(mergedRecipient.ein || '').startsWith('enc:v1:')) {
+    mergedRecipient.ein = base.recipient.ein;
   }
 
   if (!saved?.recipient && saved?.recipientAddress) {
@@ -370,22 +846,24 @@ export function getDefaultExportInvoiceConfig(
   }
 
   const mergedProvider: ExportInvoiceProvider = {
+    ...base.provider,
     ...docProvider,
     ...(saved?.provider || {}),
   };
-  for (const key of Object.keys(docProvider) as (keyof ExportInvoiceProvider)[]) {
-    if (!String(mergedProvider[key] || '').trim() && String(docProvider[key] || '').trim()) {
-      mergedProvider[key] = docProvider[key];
+  for (const key of Object.keys(base.provider) as (keyof ExportInvoiceProvider)[]) {
+    if (!String(mergedProvider[key] || '').trim() && String(base.provider[key] || '').trim()) {
+      mergedProvider[key] = base.provider[key];
     }
   }
 
   const mergedBank: ExportInvoiceBankDetails = {
+    ...base.bank,
     ...docBank,
     ...(saved?.bank || {}),
   };
-  for (const key of Object.keys(docBank) as (keyof ExportInvoiceBankDetails)[]) {
-    if (!String(mergedBank[key] || '').trim() && String(docBank[key] || '').trim()) {
-      mergedBank[key] = docBank[key];
+  for (const key of Object.keys(base.bank) as (keyof ExportInvoiceBankDetails)[]) {
+    if (!String(mergedBank[key] || '').trim() && String(base.bank[key] || '').trim()) {
+      mergedBank[key] = base.bank[key];
     }
   }
 
@@ -393,18 +871,25 @@ export function getDefaultExportInvoiceConfig(
   const signatoryTitle =
     saved?.signatoryTitle ||
     mergedProvider.signatoryTitle ||
-    docProvider.signatoryTitle ||
-    'Partner';
+    base.signatoryTitle ||
+    'Designated Partner';
 
   return {
-    ...DEFAULT_CONFIG,
+    ...base,
     ...saved,
-    lutNumber: saved?.lutNumber || getCurrentLutArn(),
-    placeOfSupply: saved?.placeOfSupply || getSubsidiaryPlaceOfSupply(),
+    lutNumber: saved?.lutNumber || base.lutNumber,
+    paymentTerms: saved?.paymentTerms || base.paymentTerms,
+    billingPeriod: saved?.billingPeriod || base.billingPeriod,
+    placeOfSupply: saved?.placeOfSupply || base.placeOfSupply,
+    agreementDate: saved?.agreementDate || base.agreementDate,
+    agreementReference: saved?.agreementReference || base.agreementReference,
+    serviceDescription: saved?.serviceDescription || base.serviceDescription,
+    sacCode: saved?.sacCode || base.sacCode,
+    purposeCode: saved?.purposeCode || base.purposeCode,
     bank: mergedBank,
     recipient: mergedRecipient,
     provider: mergedProvider,
-    recipientAddress: addressBlock || saved?.recipientAddress || formatSubsidiaryAddress(),
+    recipientAddress: addressBlock || saved?.recipientAddress || base.recipientAddress,
     signatoryTitle,
   };
 }
@@ -422,8 +907,19 @@ export function generateExportInvoiceNumber(seq?: number): string {
   return `EXP-${year}-${String(stored).padStart(3, '0')}`;
 }
 
+export function roundUsdWhole(amount: number): number {
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount);
+}
+
+/** Format USD as whole dollars only (no cents), e.g. $11,875. */
 export function formatUsd(amount: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(roundUsdWhole(amount));
 }
 
 export function formatInvoiceDate(isoDate: string): string {
@@ -431,7 +927,7 @@ export function formatInvoiceDate(isoDate: string): string {
   return d.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** USD amount in words (international numbering). */
+/** USD amount in words (international numbering) — whole dollars only. */
 export function usdAmountInWords(amount: number): string {
   const ones = [
     '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -473,13 +969,8 @@ export function usdAmountInWords(amount: number): string {
     return r ? `${convert(b)} Billion ${convert(r)}` : `${convert(b)} Billion`;
   };
 
-  const major = Math.floor(amount);
-  const cents = Math.round((amount - major) * 100);
-  const words = convert(major);
-  if (cents > 0) {
-    return `${words} US Dollars and ${convert(cents)} Cents`;
-  }
-  return `${words} US Dollars`;
+  const major = roundUsdWhole(amount);
+  return `${convert(major)} US Dollars`;
 }
 
 export function buildExportInvoiceData(
@@ -492,9 +983,11 @@ export function buildExportInvoiceData(
   const entity = getEntityRegistry();
   const us = entity.subsidiary;
 
-  const amountUsd = config.useCalculatedAmount
-    ? calculatedAmountUsd
-    : config.qty * config.rateUsd;
+  const amountUsd = roundUsdWhole(
+    config.useCalculatedAmount
+      ? calculatedAmountUsd
+      : config.qty * config.rateUsd,
+  );
 
   const provider = config.provider?.name
     ? config.provider
@@ -504,10 +997,11 @@ export function buildExportInvoiceData(
 
   const monthYear = new Date(overrides?.invoiceDate ?? new Date().toISOString().split('T')[0])
     .toLocaleString('default', { month: 'long', year: 'numeric' });
+  const billingPeriod = (config.billingPeriod || '').trim() || monthYear;
 
-  const serviceLine = config.serviceDescription.includes(monthYear)
+  const serviceLine = config.serviceDescription.includes(billingPeriod)
     ? config.serviceDescription
-    : `${config.serviceDescription} for the month of ${monthYear}.`;
+    : `${config.serviceDescription} for the month of ${billingPeriod}.`;
 
   const recipient = config.recipient?.name
     ? config.recipient
@@ -528,6 +1022,8 @@ export function buildExportInvoiceData(
     providerState: provider.state || entity.registeredAddress.state || 'Maharashtra',
     providerGstin: provider.gstin || entity.gstin || '',
     providerPan: provider.pan || entity.pan || '',
+    providerLlpin: provider.llpin || entity.llpin || '',
+    providerIec: provider.iec || '',
     recipientName: recipient.name || subsidiary?.name || us.legalName,
     recipientAddress,
     recipientState: recipient.state || us.operatingAddress?.state || subsidiary?.state || us.stateOfIncorporation,
@@ -540,6 +1036,7 @@ export function buildExportInvoiceData(
     recipientPhone: recipient.phone || undefined,
     config: {
       ...config,
+      billingPeriod,
       provider,
       recipient,
       recipientAddress,
@@ -580,7 +1077,8 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
     th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
     th { background: #f1f5f9; font-weight: 600; }
     .meta-table td:first-child { width: 38%; font-weight: 600; background: #f8fafc; }
-    .entity-block { margin: 16px 0; }
+    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; align-items: start; }
+    .entity-block { border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px 12px; margin: 0; }
     .entity-block h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin: 0 0 6px; }
     .entity-block p { margin: 2px 0; }
     .services th { background: #1e3a5f; color: #fff; }
@@ -590,7 +1088,10 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
     .signatory { margin-top: 40px; }
     .signatory .line { border-top: 1px solid #334155; width: 240px; margin-top: 48px; padding-top: 6px; }
     .footer-note { margin-top: 32px; font-size: 10px; color: #94a3b8; text-align: center; }
-    @media print { body { margin: 0; padding: 16px; } }
+    @media print {
+      body { margin: 0; padding: 16px; }
+      .parties { gap: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -601,26 +1102,30 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
     <tr><td>Invoice Number</td><td>${esc(data.invoiceNumber)}</td></tr>
     <tr><td>Invoice Date</td><td>${esc(formatInvoiceDate(data.invoiceDate))}</td></tr>
     <tr><td>Payment Terms</td><td>${esc(config.paymentTerms)}</td></tr>
+    <tr><td>Billing Period</td><td>${esc(config.billingPeriod || '[Month Year]')}</td></tr>
     <tr><td>Place of Supply</td><td>${esc(config.placeOfSupply)}</td></tr>
     <tr><td>LUT Number</td><td>${esc(config.lutNumber || '[Insert Your 2026-2027 ARN Number]')}</td></tr>
   </table>
 
-  <div class="entity-block">
-    <h3>From (Service Provider)</h3>
-    <p><strong>${esc(data.providerName)}</strong></p>
-    <p>${esc(data.providerAddress).replace(/\n/g, '<br>')}</p>
-    <p><strong>GSTIN:</strong> ${esc(data.providerGstin || '[Your 15-digit GST Number]')}</p>
-    <p><strong>PAN:</strong> ${esc(data.providerPan || '[LLP PAN Number]')}</p>
-  </div>
-
-  <div class="entity-block">
-    <h3>To (Service Recipient)</h3>
-    <p><strong>${esc(data.recipientName)}</strong></p>
-    <p>${esc(data.recipientAddress).replace(/\n/g, '<br>')}</p>
-    ${data.recipientContactName ? `<p><strong>Contact:</strong> ${esc(data.recipientContactName)}</p>` : ''}
-    ${data.recipientEmail ? `<p><strong>Email:</strong> ${esc(data.recipientEmail)}</p>` : ''}
-    ${data.recipientPhone ? `<p><strong>Phone:</strong> ${esc(data.recipientPhone)}</p>` : ''}
-    <p><strong>EIN:</strong> ${esc(data.recipientEin || '[US Employer Identification Number]')}</p>
+  <div class="parties">
+    <div class="entity-block">
+      <h3>From (Service Provider)</h3>
+      <p><strong>${esc(data.providerName)}</strong></p>
+      <p>${esc(data.providerAddress).replace(/\n/g, '<br>')}</p>
+      <p><strong>GSTIN:</strong> ${esc(data.providerGstin || '[Your 15-digit GST Number]')}</p>
+      <p><strong>PAN:</strong> ${esc(data.providerPan || '[LLP PAN Number]')}</p>
+      <p><strong>LLP Incorporation Code:</strong> ${esc(data.providerLlpin || data.config.provider?.llpin || '[LLPIN]')}</p>
+      <p><strong>Import / Export Code:</strong> ${esc(data.providerIec || data.config.provider?.iec || '[IEC Number]')}</p>
+    </div>
+    <div class="entity-block">
+      <h3>To (Service Recipient)</h3>
+      <p><strong>${esc(data.recipientName)}</strong></p>
+      <p>${esc(data.recipientAddress).replace(/\n/g, '<br>')}</p>
+      ${data.recipientContactName ? `<p><strong>Contact:</strong> ${esc(data.recipientContactName)}</p>` : ''}
+      ${data.recipientEmail ? `<p><strong>Email:</strong> ${esc(data.recipientEmail)}</p>` : ''}
+      ${data.recipientPhone ? `<p><strong>Phone:</strong> ${esc(data.recipientPhone)}</p>` : ''}
+      <p><strong>EIN:</strong> ${esc(data.recipientEin || '[US Employer Identification Number]')}</p>
+    </div>
   </div>
 
   <h3 style="margin-top: 24px;">Service Description</h3>

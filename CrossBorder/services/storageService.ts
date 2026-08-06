@@ -140,7 +140,17 @@ const DEFAULT_ORG_DATA = (profile: CompanyProfile): Omit<OrganisationRecord, 'id
   employees: [],
   transactions: [],
   revenueData: { transactions: [], lastSyncDate: null, startDate: '2025-04-01', endDate: '2026-01-31' },
-  transferPricing: { usRevenue: 0, usExpenses: 0, margin: 0 },
+  transferPricing: {
+    usRevenue: 0,
+    usExpenses: 0,
+    margin: 0,
+    serviceRecipients: [],
+    activeRecipientId: null,
+    serviceProviders: [],
+    activeProviderId: null,
+    commercialInvoices: [],
+    activeInvoiceId: null,
+  },
   taxEngine: { bookProfit: 0 },
   payrollRuns: [],
   leaveRequests: [],
@@ -193,13 +203,30 @@ export interface ModulePermission {
 }
 
 // Type definitions for stored data
-import type { ExportInvoiceConfig } from './exportInvoiceService';
+import type {
+  ExportInvoiceConfig,
+  ServiceRecipientProfile,
+  ServiceProviderProfile,
+  TransferPricingInvoiceRecord,
+} from './exportInvoiceService';
 
 export interface TransferPricingData {
   usRevenue: number;
   usExpenses: number;
   margin: number;
   exportInvoice?: ExportInvoiceConfig;
+  /** Saved service recipients — reload any onto future commercial invoices. */
+  serviceRecipients?: ServiceRecipientProfile[];
+  /** Last-selected recipient profile id (persists across sessions). */
+  activeRecipientId?: string | null;
+  /** Saved service providers — reload any onto future commercial invoices. */
+  serviceProviders?: ServiceProviderProfile[];
+  /** Last-selected provider profile id (persists across sessions). */
+  activeProviderId?: string | null;
+  /** Full history of generated commercial invoices (reload to edit / delete). */
+  commercialInvoices?: TransferPricingInvoiceRecord[];
+  /** Invoice currently open in the editor (if any). */
+  activeInvoiceId?: string | null;
 }
 
 export interface TaxEngineData {
@@ -802,8 +829,26 @@ export async function syncEmployeesFromServer(): Promise<number> {
 
 export const getTransferPricingData = (): TransferPricingData => {
   const org = getActiveOrg();
-  if (org) return org.transferPricing;
-  return storage.get<TransferPricingData>(StorageKeys.TRANSFER_PRICING) || { usRevenue: 0, usExpenses: 0, margin: 0 };
+  const fromOrg = org?.transferPricing;
+  const fromFlat = storage.get<TransferPricingData>(StorageKeys.TRANSFER_PRICING);
+  const base = fromOrg || fromFlat || { usRevenue: 0, usExpenses: 0, margin: 0 };
+  // Prefer the longer commercial-invoice history when org + flat key diverge.
+  const orgInvoices = fromOrg?.commercialInvoices;
+  const flatInvoices = fromFlat?.commercialInvoices;
+  const commercialInvoices =
+    (orgInvoices?.length || 0) >= (flatInvoices?.length || 0)
+      ? (orgInvoices || flatInvoices || [])
+      : (flatInvoices || orgInvoices || []);
+  return {
+    ...base,
+    commercialInvoices,
+    serviceProviders: fromOrg?.serviceProviders ?? fromFlat?.serviceProviders ?? base.serviceProviders,
+    serviceRecipients: fromOrg?.serviceRecipients ?? fromFlat?.serviceRecipients ?? base.serviceRecipients,
+    activeProviderId: fromOrg?.activeProviderId ?? fromFlat?.activeProviderId ?? base.activeProviderId ?? null,
+    activeRecipientId: fromOrg?.activeRecipientId ?? fromFlat?.activeRecipientId ?? base.activeRecipientId ?? null,
+    activeInvoiceId: fromOrg?.activeInvoiceId ?? fromFlat?.activeInvoiceId ?? base.activeInvoiceId ?? null,
+    exportInvoice: fromOrg?.exportInvoice ?? fromFlat?.exportInvoice ?? base.exportInvoice,
+  };
 };
 
 export const setTransferPricingData = (data: TransferPricingData): void => {
