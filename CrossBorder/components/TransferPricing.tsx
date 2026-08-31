@@ -982,18 +982,27 @@ const TransferPricing: React.FC = () => {
                     Use TP calculator amount (${invoiceAmount.toLocaleString()})
                   </label>
                 </div>
-                {!exportConfig.useCalculatedAmount && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={labelClass}>Qty / Hours</label>
-                      <input type="number" className={inputClass} value={exportConfig.qty} onChange={(e) => updateConfig('qty', Number(e.target.value))} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Rate (USD)</label>
-                      <input type="number" className={inputClass} value={exportConfig.rateUsd} onChange={(e) => updateConfig('rateUsd', Number(e.target.value))} />
-                    </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Qty / Hours</label>
+                    <input
+                      type="number"
+                      className={inputClass}
+                      value={exportConfig.qty}
+                      onChange={(e) => updateConfig('qty', Number(e.target.value))}
+                    />
                   </div>
-                )}
+                  <div>
+                    <label className={labelClass}>Rate (USD){exportConfig.useCalculatedAmount ? ' — from TP calculator' : ''}</label>
+                    <input
+                      type="number"
+                      className={`${inputClass}${exportConfig.useCalculatedAmount ? ' bg-slate-50 text-slate-500' : ''}`}
+                      value={exportConfig.useCalculatedAmount ? invoiceAmount : exportConfig.rateUsd}
+                      onChange={(e) => updateConfig('rateUsd', Number(e.target.value))}
+                      readOnly={exportConfig.useCalculatedAmount}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1399,6 +1408,54 @@ const TransferPricing: React.FC = () => {
                   <input className={inputClass} value={exportConfig.bank.adCode} onChange={(e) => updateBank('adCode', e.target.value)} placeholder="Authorized Dealer Code" />
                 </div>
               </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h3 className="font-bold text-slate-900">FX Conversion &amp; Remittance Fees</h3>
+              <p className="text-xs text-slate-500">Reference only — shown on the invoice for LLP books, doesn&apos;t change the USD invoice value.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>USD → INR Conversion Rate</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    className={inputClass}
+                    value={exportConfig.fxRateUsdInr ?? ''}
+                    onChange={(e) => updateConfig('fxRateUsdInr', e.target.value === '' ? undefined : Number(e.target.value))}
+                    placeholder={liveRate.toFixed(4)}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Wise Commission Fee (USD)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={inputClass}
+                    value={exportConfig.wiseFeeUsd ?? ''}
+                    onChange={(e) => updateConfig('wiseFeeUsd', e.target.value === '' ? undefined : Number(e.target.value))}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+              {(exportConfig.fxRateUsdInr || exportConfig.wiseFeeUsd) ? (
+                <div className="text-xs text-slate-600 space-y-1 pt-2 border-t border-slate-100">
+                  {exportConfig.fxRateUsdInr ? (
+                    <div className="flex justify-between">
+                      <span>Invoice value in INR (reference)</span>
+                      <span className="font-semibold">{formatAmount(exportInvoiceData.amountUsd * exportConfig.fxRateUsdInr, 'INR')}</span>
+                    </div>
+                  ) : null}
+                  {exportConfig.wiseFeeUsd ? (
+                    <div className="flex justify-between">
+                      <span>Net after Wise fee</span>
+                      <span className="font-semibold">
+                        ${(exportInvoiceData.amountUsd - exportConfig.wiseFeeUsd).toLocaleString()}
+                        {exportConfig.fxRateUsdInr ? ` (${formatAmount((exportInvoiceData.amountUsd - exportConfig.wiseFeeUsd) * exportConfig.fxRateUsdInr, 'INR')})` : ''}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-3 gap-2">

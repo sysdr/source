@@ -183,6 +183,7 @@ export function computeInvestorPitchMetrics(
   const futureProjections: FutureProjection[] = [];
   for (let i = 1; i <= 6; i++) {
     const d = new Date();
+    d.setDate(1); // avoid month-length overflow (e.g. Aug 31 + 1mo skipping Sep)
     d.setMonth(d.getMonth() + i);
     const monthStr = d.toISOString().slice(0, 7);
     const monthLabel = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });

@@ -7,7 +7,7 @@
   "panIssueDate": "2025-06-23",
   "tan": "NGPS26969F",
   "llpin": "ACP-3421",
-  "iec": "",
+  "iec": "AFQFS5950Q",
   "fillipReference": "M30135791",
   "incorporationDate": "2025-06-23",
   "incorporationPlace": "Manesar, Central Registration Centre",
@@ -54,8 +54,8 @@
       "country": "US"
     },
     "operatingAddress": {
-      "city": "Denver",
-      "state": "Colorado",
+      "city": "Newark",
+      "state": "Delaware",
       "country": "US"
     },
     "authorizedShares": 1000,

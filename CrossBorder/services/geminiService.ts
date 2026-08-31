@@ -1,10 +1,20 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Initialize the Google GenAI client using the API key from environment variables.
-const ai = new GoogleGenAI({
-  apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || '',
-});
+// Lazily initialize the Google GenAI client so importing this module (which
+// happens on app load) doesn't crash when no key is configured — only actual
+// AI assistant calls fail until GEMINI_API_KEY is set.
+let aiClient: GoogleGenAI | null = null;
+function getAi(): GoogleGenAI {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set. Add it to .env to use the AI assistant.');
+  }
+  if (!aiClient) {
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 /** Orchestrator routing: which agents to use and optional tool(s) to call. */
 export interface OrchestratorRouteResult {
@@ -29,7 +39,7 @@ export const getOrchestratorRoute = async (
     const history = recentTurns?.length
       ? recentTurns.map((t) => `${t.role}: ${t.content}`).join('\n') + '\nuser: ' + userMessage
       : userMessage;
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Org context: ${orgContextLine}\n\nCurrent exchange:\n${history}`,
       config: {
@@ -94,7 +104,7 @@ Give a brief suggestedReply only when the user asks a simple conversational ques
 
 export const getComplianceAdvice = async (query: string) => {
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `User asks: ${query}. 
       Context: The user is an Indian founder with an Indian LLP and a US C-Corp subsidiary running a newsletter business. 
@@ -112,7 +122,7 @@ export const getComplianceAdvice = async (query: string) => {
 
 export const analyzeInvoice = async (invoiceText: string) => {
   // Analyze invoice for cross-border compliance using Gemini.
-  const response = await ai.models.generateContent({
+  const response = await getAi().models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Analyze this invoice for cross-border compliance: ${invoiceText}`,
     config: {
@@ -153,7 +163,7 @@ export async function invokeSpecialistAgent(input: InvokeSpecialistInput): Promi
       : '';
     const contents = history + contextParts.join('\n');
 
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: "gemini-3-flash-preview",
       contents,
       config: { systemInstruction },

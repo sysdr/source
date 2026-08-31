@@ -6,7 +6,7 @@
 import type { Invoice, InvoiceStatus } from '../types';
 import { RevenueCategory } from '../types';
 import { storage, StorageKeys, getCompanyProfile, getInvoices } from './storageService';
-import { getEntityRegistry, getCurrentLutArn, formatRegisteredAddress, formatSubsidiaryAddress, getSubsidiaryPlaceOfSupply, LUT_DECLARATION } from './entityRegistryService';
+import { getEntityRegistry, getCurrentLutArn, currentIndianFinancialYear, isKnownLutArn, formatRegisteredAddress, formatSubsidiaryAddress, getSubsidiaryPlaceOfSupply, LUT_DECLARATION } from './entityRegistryService';
 
 export const EXPORT_SAC_CODE = '998314';
 export const EXPORT_PURPOSE_CODE = 'P0802';
@@ -456,6 +456,10 @@ export interface ExportInvoiceConfig {
   bank: ExportInvoiceBankDetails;
   signatoryTitle: string;
   lastSeq?: number;
+  /** USD -> INR conversion rate used to translate the invoice value for LLP books (reference only; invoice value stays in USD). */
+  fxRateUsdInr?: number;
+  /** Wise (or other remitter) commission fee charged on this inward remittance, in USD. */
+  wiseFeeUsd?: number;
 }
 
 export interface ExportInvoiceData {
@@ -480,6 +484,8 @@ export interface ExportInvoiceData {
   recipientPhone?: string;
   config: ExportInvoiceConfig;
   amountUsd: number;
+  /** Per-unit rate, unrounded (cents preserved) — for the invoice's Rate column, distinct from the whole-dollar `amountUsd` total. */
+  rateUsdPrecise: number;
 }
 
 type InvoiceCompanyProfile = {
@@ -635,22 +641,39 @@ function recipientFromDocuments(): ExportInvoiceRecipient {
   };
 }
 
+/**
+ * Parts already present (as a substring, case-insensitive) in the free-text
+ * street address are dropped — some saved address-book entries have the full
+ * address (including city/state/zip) typed into that one field, and blindly
+ * appending the structured fields again would print it twice.
+ */
+function appendUnlessAlreadyPresent(streetAddress: string, parts: (string | undefined)[]): string[] {
+  const haystack = streetAddress.toLowerCase();
+  return parts
+    .map((p) => p?.trim())
+    .filter((p): p is string => Boolean(p) && !haystack.includes(p.toLowerCase()));
+}
+
 function formatProviderAddressBlock(p: ExportInvoiceProvider): string {
+  const street = p.address?.trim() || '';
   const lines: string[] = [];
-  if (p.address?.trim()) lines.push(p.address.trim());
-  const cityLine = [p.city, p.state, p.pin].filter(Boolean).join(', ').trim();
+  if (street) lines.push(street);
+  const cityLine = appendUnlessAlreadyPresent(street, [p.city, p.state, p.pin]).join(', ');
   if (cityLine) lines.push(cityLine);
-  if (p.country?.trim()) lines.push(p.country.trim());
+  const country = appendUnlessAlreadyPresent(street, [p.country])[0];
+  if (country) lines.push(country);
   return lines.join('\n');
 }
 
 /** Compose multi-line address block for invoice display. */
 export function formatRecipientAddressBlock(r: ExportInvoiceRecipient): string {
+  const street = r.address?.trim() || '';
   const lines: string[] = [];
-  if (r.address?.trim()) lines.push(r.address.trim());
-  const cityLine = [r.city, r.state, r.zip].filter(Boolean).join(', ').trim();
+  if (street) lines.push(street);
+  const cityLine = appendUnlessAlreadyPresent(street, [r.city, r.state, r.zip]).join(', ');
   if (cityLine) lines.push(cityLine);
-  if (r.country?.trim()) lines.push(r.country.trim());
+  const country = appendUnlessAlreadyPresent(street, [r.country])[0];
+  if (country) lines.push(country);
   return lines.join('\n');
 }
 
@@ -695,7 +718,7 @@ export const COMMERCIAL_INVOICE_PARTY_DEFAULTS = {
     gstin: '27AFQFS5950Q1ZU',
     pan: 'AFQFS5950Q',
     llpin: 'ACP-3421',
-    iec: '',
+    iec: 'AFQFS5950Q',
     signatoryName: 'Sumedh Shende',
     signatoryTitle: 'Designated Partner',
   } satisfies ExportInvoiceProvider,
@@ -750,8 +773,10 @@ export function getDefaultRecipientProfile(): ServiceRecipientProfile {
 /** Full export config defaults for Create Invoice — always reloadable. */
 export function getCommercialInvoiceDefaults(
   overrides?: Partial<ExportInvoiceConfig>,
+  date = new Date(),
 ): ExportInvoiceConfig {
   const d = COMMERCIAL_INVOICE_PARTY_DEFAULTS;
+  const lutForDate = getCurrentLutArn(date) || d.lutNumber;
   const billingPeriod =
     (overrides?.billingPeriod || '').trim() ||
     new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -789,7 +814,7 @@ export function getCommercialInvoiceDefaults(
   const bank = fillBank(overrides?.bank);
 
   return {
-    lutNumber: (overrides?.lutNumber || '').trim() || d.lutNumber,
+    lutNumber: (overrides?.lutNumber || '').trim() || lutForDate,
     paymentTerms: (overrides?.paymentTerms || '').trim() || d.paymentTerms,
     billingPeriod,
     placeOfSupply: (overrides?.placeOfSupply || '').trim() || d.placeOfSupply,
@@ -807,6 +832,8 @@ export function getCommercialInvoiceDefaults(
     bank,
     signatoryTitle: (overrides?.signatoryTitle || '').trim() || provider.signatoryTitle,
     lastSeq: overrides?.lastSeq,
+    fxRateUsdInr: overrides?.fxRateUsdInr,
+    wiseFeeUsd: overrides?.wiseFeeUsd,
   };
 }
 
@@ -894,17 +921,26 @@ export function getDefaultExportInvoiceConfig(
   };
 }
 
-export function peekExportInvoiceNumber(): string {
-  const year = new Date().getFullYear();
-  const stored = Number(localStorage.getItem(`export_invoice_seq_${year}`) || '0') + 1;
-  return `EXP-${year}-${String(stored).padStart(3, '0')}`;
+/**
+ * Sequence key is the Indian financial-year start year (Apr–Mar), not calendar
+ * year — CGST Rule 46(b) requires the serial number to be unique per financial
+ * year, and using calendar year would straddle two FYs every Jan–Mar.
+ */
+function fyStartYear(date: Date): string {
+  return currentIndianFinancialYear(date).split('-')[0];
 }
 
-export function generateExportInvoiceNumber(seq?: number): string {
-  const year = new Date().getFullYear();
-  const stored = seq ?? Number(localStorage.getItem(`export_invoice_seq_${year}`) || '0') + 1;
-  localStorage.setItem(`export_invoice_seq_${year}`, String(stored));
-  return `EXP-${year}-${String(stored).padStart(3, '0')}`;
+export function peekExportInvoiceNumber(date = new Date()): string {
+  const fy = fyStartYear(date);
+  const stored = Number(localStorage.getItem(`export_invoice_seq_${fy}`) || '0') + 1;
+  return `EXP-${fy}-${String(stored).padStart(3, '0')}`;
+}
+
+export function generateExportInvoiceNumber(seq?: number, date = new Date()): string {
+  const fy = fyStartYear(date);
+  const stored = seq ?? Number(localStorage.getItem(`export_invoice_seq_${fy}`) || '0') + 1;
+  localStorage.setItem(`export_invoice_seq_${fy}`, String(stored));
+  return `EXP-${fy}-${String(stored).padStart(3, '0')}`;
 }
 
 export function roundUsdWhole(amount: number): number {
@@ -920,6 +956,17 @@ export function formatUsd(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(roundUsdWhole(amount));
+}
+
+/** Format USD with cents, unrounded — used for the per-unit Rate column so it isn't forced to a whole dollar. */
+export function formatUsdPrecise(amount: number): string {
+  if (!Number.isFinite(amount)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
 export function formatInvoiceDate(isoDate: string): string {
@@ -983,11 +1030,9 @@ export function buildExportInvoiceData(
   const entity = getEntityRegistry();
   const us = entity.subsidiary;
 
-  const amountUsd = roundUsdWhole(
-    config.useCalculatedAmount
-      ? calculatedAmountUsd
-      : config.qty * config.rateUsd,
-  );
+  const rawAmountUsd = config.useCalculatedAmount ? calculatedAmountUsd : config.qty * config.rateUsd;
+  const amountUsd = roundUsdWhole(rawAmountUsd);
+  const rateUsdPrecise = config.useCalculatedAmount ? rawAmountUsd / (config.qty || 1) : config.rateUsd;
 
   const provider = config.provider?.name
     ? config.provider
@@ -995,13 +1040,23 @@ export function buildExportInvoiceData(
   const providerAddress =
     formatProviderAddressBlock(provider) || formatRegisteredAddress();
 
-  const monthYear = new Date(overrides?.invoiceDate ?? new Date().toISOString().split('T')[0])
-    .toLocaleString('default', { month: 'long', year: 'numeric' });
+  const invoiceDateObj = new Date(overrides?.invoiceDate ?? new Date().toISOString().split('T')[0]);
+  const monthYear = invoiceDateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
   const billingPeriod = (config.billingPeriod || '').trim() || monthYear;
 
   const serviceLine = config.serviceDescription.includes(billingPeriod)
     ? config.serviceDescription
     : `${config.serviceDescription} for the month of ${billingPeriod}.`;
+
+  // Re-resolve the LUT ARN for this invoice's actual FY when the config still
+  // holds an empty value or one of our own tracked ARNs (i.e. a system-picked
+  // default, not something the user typed in manually) — keeps invoices from
+  // silently citing a prior financial year's LUT once it rolls over.
+  const lutForInvoiceDate = getCurrentLutArn(invoiceDateObj);
+  const lutNumber =
+    lutForInvoiceDate && (!config.lutNumber?.trim() || isKnownLutArn(config.lutNumber))
+      ? lutForInvoiceDate
+      : config.lutNumber;
 
   const recipient = config.recipient?.name
     ? config.recipient
@@ -1015,7 +1070,7 @@ export function buildExportInvoiceData(
     config.signatoryTitle || provider.signatoryTitle || 'Partner';
 
   return {
-    invoiceNumber: overrides?.invoiceNumber ?? generateExportInvoiceNumber(config.lastSeq),
+    invoiceNumber: overrides?.invoiceNumber ?? generateExportInvoiceNumber(config.lastSeq, invoiceDateObj),
     invoiceDate: overrides?.invoiceDate ?? new Date().toISOString().split('T')[0],
     providerName: provider.name || entity.legalName || 'India LLP',
     providerAddress,
@@ -1042,8 +1097,10 @@ export function buildExportInvoiceData(
       recipientAddress,
       signatoryTitle,
       serviceDescription: serviceLine,
+      lutNumber,
     },
     amountUsd,
+    rateUsdPrecise,
   };
 }
 
@@ -1053,6 +1110,45 @@ function esc(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function formatInr(amount: number): string {
+  if (!Number.isFinite(amount)) return '₹0';
+  return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Reference-only FX conversion + inward-remittance fee breakdown. This does not
+ * change the invoice value (which stays in USD for GST/RBI/IRS purposes) — it
+ * shows what the LLP should expect to book in INR once Wise (or another
+ * remitter) deducts its commission.
+ */
+function renderFxRemittanceSection(data: ExportInvoiceData): string {
+  const { fxRateUsdInr, wiseFeeUsd } = data.config;
+  if (!fxRateUsdInr && !wiseFeeUsd) return '';
+
+  const rate = fxRateUsdInr || 0;
+  const fee = wiseFeeUsd || 0;
+  const netUsd = data.amountUsd - fee;
+  const rows: string[] = [];
+  if (rate > 0) {
+    rows.push(`<tr><td>USD → INR Conversion Rate</td><td>${rate.toFixed(4)}</td></tr>`);
+    rows.push(`<tr><td>Invoice Value in INR (reference)</td><td>${formatInr(data.amountUsd * rate)}</td></tr>`);
+  }
+  if (fee > 0) {
+    rows.push(`<tr><td>Wise Commission Fee</td><td>${formatUsdPrecise(fee)}${rate > 0 ? ` (${formatInr(fee * rate)})` : ''}</td></tr>`);
+    rows.push(`<tr><td>Net Amount After Wise Fee</td><td>${formatUsdPrecise(netUsd)}${rate > 0 ? ` (${formatInr(netUsd * rate)})` : ''}</td></tr>`);
+  }
+  if (rows.length === 0) return '';
+
+  return `
+  <div class="wire-section">
+    <h3>FX Conversion &amp; Remittance Fees (Reference Only)</h3>
+    <p style="font-size:12px;color:#475569;margin-bottom:12px;">Informational only — does not change the invoice value above, which remains ${formatUsd(data.amountUsd)} USD for GST LUT / RBI FIRC / IRS purposes.</p>
+    <table class="meta-table">
+      ${rows.join('\n      ')}
+    </table>
+  </div>`;
 }
 
 export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
@@ -1144,7 +1240,7 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
         <td><strong>${esc(config.sacCode)}</strong></td>
         <td>${esc(config.serviceDescription)}<br><em style="color:#64748b;font-size:11px;">${esc(agreementRef)}</em></td>
         <td>${config.qty}</td>
-        <td>${formatUsd(config.useCalculatedAmount ? data.amountUsd : config.rateUsd)}</td>
+        <td>${formatUsdPrecise(data.rateUsdPrecise)}</td>
         <td>${formatUsd(data.amountUsd)}</td>
       </tr>
     </tbody>
@@ -1152,6 +1248,7 @@ export function generateExportInvoiceHtml(data: ExportInvoiceData): string {
 
   <p class="total-row">Total Invoice Value: ${formatUsd(data.amountUsd)} USD</p>
   <p class="amount-words">(Amount in words: ${esc(usdAmountInWords(data.amountUsd))})</p>
+  ${renderFxRemittanceSection(data)}
 
   <div class="wire-section">
     <h3>Wire Transfer Instructions (Inward Remittance)</h3>
@@ -1220,7 +1317,7 @@ export function buildInvoiceRecordFromExport(data: ExportInvoiceData): Invoice {
         description: data.config.serviceDescription,
         quantity: data.config.qty,
         unit: 'Service',
-        unitPrice: data.config.useCalculatedAmount ? data.amountUsd : data.config.rateUsd,
+        unitPrice: data.rateUsdPrecise,
         amount: data.amountUsd,
         currency: 'USD',
         taxRate: 0,
@@ -1228,7 +1325,9 @@ export function buildInvoiceRecordFromExport(data: ExportInvoiceData): Invoice {
       },
     ],
     entity: 'parent',
-    notes: `${LUT_DECLARATION} SAC ${data.config.sacCode}. Purpose ${data.config.purposeCode}. LUT: ${data.config.lutNumber}`,
+    notes: `${LUT_DECLARATION} SAC ${data.config.sacCode}. Purpose ${data.config.purposeCode}. LUT: ${data.config.lutNumber}${
+      data.config.fxRateUsdInr ? ` FX rate USD→INR: ${data.config.fxRateUsdInr.toFixed(4)}.` : ''
+    }${data.config.wiseFeeUsd ? ` Wise commission fee: ${formatUsdPrecise(data.config.wiseFeeUsd)}.` : ''}`,
     isForeignIncome: true,
     incomeType: 'export_of_services',
     classification: RevenueCategory.EXPORT,

@@ -281,4 +281,9 @@ export function getCurrentLutArn(date = new Date()): string {
   return getLutForFinancialYear(currentIndianFinancialYear(date))?.applicationArn ?? '';
 }
 
+/** True if `arn` is one of our tracked LUT ARNs (for any financial year) — used to tell a system-picked LUT default from a manually typed one. */
+export function isKnownLutArn(arn: string): boolean {
+  return registry.lutCertificates.some((c) => c.applicationArn === arn);
+}
+
 export const LUT_DECLARATION = registry.invoiceDeclaration;
