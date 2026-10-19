@@ -11,7 +11,7 @@ Admins need one dashboard over every Stripe account in the organisation: all acc
 
 ## Decision
 
-1. **Separate, additive store.** Tables `stripe_mirror_objects` (verbatim Stripe JSON in `raw`, plus index columns), `stripe_mirror_accounts`, `stripe_mirror_runs`. The ledger (`transactions`) is untouched.
+1. **Separate, additive store.** Tables, in their own git-ignored file `data/stripe-mirror.db` (customer PII must not enter the tracked `data/suez.db` snapshot): `stripe_mirror_objects` (verbatim Stripe JSON in `raw`, plus index columns), `stripe_mirror_accounts`, `stripe_mirror_runs`. The ledger (`transactions`) is untouched.
 2. **Mirror = list-and-reconcile.** Per account and resource (customers, subscriptions with `status=all`, subscription schedules, charges) list the complete set, upsert, then tombstone (`deleted_at`) rows not returned. Tombstoning only runs after a complete listing; any Stripe error aborts that account with no deletions.
 3. **Verification, not assertion.** Each resource sync checks stored-live count equals unique fetched count (charges also the amount sum); mismatches mark the account `failed`.
 4. **Lifecycle is derived, not stored** (`lifecycle.ts`): current > future (trialing or `not_started` schedule) > past (ended subscription or succeeded charge) > none.

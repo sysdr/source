@@ -27,7 +27,10 @@ data/documents/
 data/backups/
 
 # SQLite WAL sidecars — main DB file data/suez.db is tracked for clone bootstrap
-data/*.db-wal
+data/# Stripe mirror DB holds customer PII — never commit (see server/stripeMirror/mirrorDb.ts)
+data/stripe-mirror.db
+data/stripe-mirror.db-*
+*.db-wal
 data/*.db-shm
 *.db-wal
 *.db-shm

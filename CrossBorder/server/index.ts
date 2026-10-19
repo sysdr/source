@@ -39,7 +39,7 @@ import {
   getEmployees, upsertEmployee, bulkUpsertEmployees, deleteEmployee,
   getPayrollRuns, upsertPayrollRun, deletePayrollRun,
   getInvoicesDB, upsertInvoice, deleteInvoice,
-  getOrgData, setOrgData, getAllOrgData, getDatabase,
+  getOrgData, setOrgData, getAllOrgData,
   insertReport, listReports, getReport, deleteReport,
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
@@ -58,6 +58,7 @@ import { reconcileOrg } from './reconciliation.js';
 import { buildThreeWayReconciliation, type Gstr2bClaim } from '../services/threeWayReconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
 import { handleStripeMirrorRoute, type StripeConfigLite } from './stripeMirror/routes.js';
+import { getMirrorDatabase } from './stripeMirror/mirrorDb.js';
 import { processStripeWebhookEvent, type StripeWebhookEvent } from './stripeWebhookHandler.js';
 import { verifyStripeWebhookSignature } from './stripeWebhookCrypto.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
@@ -768,7 +769,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   if (url.startsWith('/api/stripe-mirror/')) {
     const suezKey = getSuezApiKey();
     const handled = await handleStripeMirrorRoute({
-      req, url, qs, role: getRequestRole(req), db: getDatabase(),
+      req, url, qs, role: getRequestRole(req), db: getMirrorDatabase(),
       respond: (status, data) => respond(req, res, status, data),
       parseBody: () => parseBody(req),
       isAuthorized: () => !suezKey || getAuth(req) === suezKey,

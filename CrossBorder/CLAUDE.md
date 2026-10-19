@@ -70,6 +70,7 @@ A separate orchestration layer for the in-app "Suez AI Assistant" — see `AGENT
 ### Stripe ingestion and transfer-pricing invoices
 - The Stripe config (API key, account list, context account) lives in per-org SQLite data under the key `suez_stripe_org_config`. It does not come from `.env`.
 - `server/stripeSqliteSync.ts` pulls charges into the SQLite ledger. With an organization key (`sk_org_`) it scopes each request with a `Stripe-Context` header; with a standard key it uses `Stripe-Account`. `services/stripeAccountDiscovery.ts` finds org member accounts by probing the Sigma API, whose 403 response lists the member ids, because Stripe has no "list org accounts" endpoint for org keys.
+- The mirror (`server/stripeMirror/`) is a separate read-only copy of Stripe customers, subscriptions, schedules, charges and products in its own git-ignored database, `data/stripe-mirror.db` (override with `MIRROR_DB_PATH`). It holds customer PII, so never copy it into `data/suez.db`. Rebuild it from Stripe with `POST /api/stripe-mirror/sync` or the Stripe Accounts tab.
 - Webhooks: `POST /api/stripe/webhook` is gated by `FF_STRIPE_WEBHOOK_INGEST` and verified with `STRIPE_WEBHOOK_SECRET` (REQ-078 / ADR-003).
 - `scripts/generate-monthly-tp-invoice.ts` creates the monthly intercompany export invoice (SYSTEMDR LLP → SystemDR, Inc., 90% of net Stripe revenue). It always creates a **Draft**. A human must review it and mark it Sent in the UI, so never automate that step.
 
