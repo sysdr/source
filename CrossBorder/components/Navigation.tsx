@@ -15,6 +15,7 @@ interface NavProps {
 const MODULE_PERMISSION_MAP: Record<string, string> = {
   revenue: 'stripe',
   sync:    'stripe',
+  'stripe-mirror': 'stripe',
   transfer:'tp',
   agents:  'ai',
   reports: 'filing',
@@ -87,6 +88,7 @@ const SECTIONS: Section[] = [
     title: 'Finance & Accounting',
     tabs: [
       { id: 'sync',       label: 'Data Sync',        icon: 'sync'       },
+      { id: 'stripe-mirror', label: 'Stripe Accounts', icon: 'sync'     },
       { id: 'revenue',    label: 'Revenue',          icon: 'revenue'    },
       { id: 'vendors',    label: 'Vendors & AP',     icon: 'vendors'    },
       { id: 'journal',    label: 'Journal Entries',  icon: 'journal'    },

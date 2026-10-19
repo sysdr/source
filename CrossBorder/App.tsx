@@ -71,6 +71,7 @@ const USTaxScreen       = lazy(() => import('./components/USTaxScreen'));
 const InvestorPitch     = lazy(() => import('./components/InvestorPitch'));
 const Onboarding        = lazy(() => import('./components/Onboarding'));
 const AdminPanel        = lazy(() => import('./components/AdminPanel'));
+const StripeMirror      = lazy(() => import('./components/stripeMirror'));
 const OrgManager        = lazy(() => import('./components/OrgManager'));
 const AgentArchitectureView = lazy(() => import('./components/AgentArchitectureView'));
 const Invoices          = lazy(() => import('./components/Invoices'));
@@ -119,6 +120,7 @@ const PAGE_LABELS: Record<string, { title: string; section: string }> = {
   balance:    { title: 'Balance & Revenue',   section: 'Overview'              },
   pitch:      { title: 'Investor Pitch',      section: 'Overview'              },
   sync:       { title: 'Data Sync',           section: 'Finance & Accounting'  },
+  'stripe-mirror': { title: 'Stripe Accounts', section: 'Finance & Accounting'  },
   revenue:    { title: 'Revenue',             section: 'Finance & Accounting'  },
   vendors:    { title: 'Vendors & AP (P2P)',  section: 'Finance & Accounting'  },
   journal:    { title: 'Journal Entries',     section: 'Finance & Accounting'  },
@@ -569,6 +571,7 @@ const App: React.FC = () => {
         case 'balance':     return <BalanceOverview />;
         case 'pitch':       return <InvestorPitch />;
         case 'sync':        return <SyncDataScreen />;
+        case 'stripe-mirror': return <StripeMirror />;
         case 'revenue':     return (
           <RevenueIngestion
             stripeApiKey={stripeApiKey}

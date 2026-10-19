@@ -39,7 +39,7 @@ import {
   getEmployees, upsertEmployee, bulkUpsertEmployees, deleteEmployee,
   getPayrollRuns, upsertPayrollRun, deletePayrollRun,
   getInvoicesDB, upsertInvoice, deleteInvoice,
-  getOrgData, setOrgData, getAllOrgData,
+  getOrgData, setOrgData, getAllOrgData, getDatabase,
   insertReport, listReports, getReport, deleteReport,
   insertInput, listInputs, getInput, deleteInput,
   insertProcessed, listProcessed, getProcessed, deleteProcessed,
@@ -57,6 +57,7 @@ import {
 import { reconcileOrg } from './reconciliation.js';
 import { buildThreeWayReconciliation, type Gstr2bClaim } from '../services/threeWayReconciliation.js';
 import { syncStripeToSqlite, type StripeOrgConfigInput } from './stripeSqliteSync.js';
+import { handleStripeMirrorRoute, type StripeConfigLite } from './stripeMirror/routes.js';
 import { processStripeWebhookEvent, type StripeWebhookEvent } from './stripeWebhookHandler.js';
 import { verifyStripeWebhookSignature } from './stripeWebhookCrypto.js';
 import { buildInviteEmail, normalizeSmtpConfig, sendMail, verifySmtp } from './mail.js';
@@ -762,6 +763,19 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // PUT    /api/org/:orgId/:key     { value: ... }
 
   const qs = Object.fromEntries(new URL(req.url ?? '/', 'http://localhost').searchParams);
+
+  // ── Stripe mirror (admin dashboard: accounts, customers, payments) ─────────
+  if (url.startsWith('/api/stripe-mirror/')) {
+    const suezKey = getSuezApiKey();
+    const handled = await handleStripeMirrorRoute({
+      req, url, qs, role: getRequestRole(req), db: getDatabase(),
+      respond: (status, data) => respond(req, res, status, data),
+      parseBody: () => parseBody(req),
+      isAuthorized: () => !suezKey || getAuth(req) === suezKey,
+      getStripeConfig: (orgId) => getOrgData(orgId, 'suez_stripe_org_config') as StripeConfigLite | null,
+    });
+    if (handled) return;
+  }
 
   // ── Transactions ──────────────────────────────────────────────────────────
   if (url === '/api/transactions' && req.method === 'GET') {

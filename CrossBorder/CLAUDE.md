@@ -36,7 +36,17 @@ npm run security:report      # scripts/security-report.ts
 npm run snapshot:data        # refresh data/suez.db from live browser state — run before committing DB changes
 npm run seed:db               # scripts/seed-default-org-db.ts
 npm run backup:db / backup:verify
+npm run demo:p0               # P0 dry-run: ephemeral server + Flows A–C (also run in CI)
+
+# Stripe / transfer pricing (read suez_stripe_org_config from SQLite; all take --org=<orgId>)
+npm run stripe:refresh-accounts -- --org=... [--sync --days=90 | --entire] [--purge=none|stripe|all]
+npm run test:stripe-verify -- --org=... [--days=30] [--account=acct_x] [--json]
+npm run tp:generate-monthly-invoice -- --org=... [--month=YYYY-MM] [--sync]
 ```
+
+There is no lint script; type checking happens via Vite/vitest. CI (`.github/workflows/ci.yml`, Node 20) runs, in order: `audit:deps` → `test` → `test:a11y` → `test:load` → `demo:p0` → `build`. All of them must pass.
+
+`start.sh` only starts Vite (not the API). `stop.sh` kills Vite and anything on ports 3000/9000/9001, but not the API on :3001.
 
 Data flow gotcha: `data/suez.db` is the committed workspace snapshot. On first load, the API rebuilds browser `localStorage` from it. Run the API (`npm run server`) before the UI so hydration works. Never commit `*.db-wal` / `*.db-shm`. After changes that mutate seed/demo data, run `npm run snapshot:data` and commit the updated `data/suez.db`.
 
@@ -56,6 +66,12 @@ A separate orchestration layer for the in-app "Suez AI Assistant" — see `AGENT
 - Tax/accounting math is always computed by deterministic tools, never by the LLM directly — the model only interprets and formats results.
 - Memory: `agents/memory/session.ts` (short-term, sessionStorage), `agents/memory/context.ts` (org summary), `agents/memory/auditLog.ts` (persisted audit trail in `localStorage` under `suez_agent_audit_log`, shown in UI as "Last run audit").
 - To add an agent: extend `AgentId` in `agents/types.ts`, add a persona, assign tools with RBAC. To add a tool: implement in `agents/tools/impl.ts`, define with `allowedAgents` in `agents/tools/definitions.ts`.
+
+### Stripe ingestion and transfer-pricing invoices
+- The Stripe config (API key, account list, context account) lives in per-org SQLite data under the key `suez_stripe_org_config`. It does not come from `.env`.
+- `server/stripeSqliteSync.ts` pulls charges into the SQLite ledger. With an organization key (`sk_org_`) it scopes each request with a `Stripe-Context` header; with a standard key it uses `Stripe-Account`. `services/stripeAccountDiscovery.ts` finds org member accounts by probing the Sigma API, whose 403 response lists the member ids, because Stripe has no "list org accounts" endpoint for org keys.
+- Webhooks: `POST /api/stripe/webhook` is gated by `FF_STRIPE_WEBHOOK_INGEST` and verified with `STRIPE_WEBHOOK_SECRET` (REQ-078 / ADR-003).
+- `scripts/generate-monthly-tp-invoice.ts` creates the monthly intercompany export invoice (SYSTEMDR LLP → SystemDR, Inc., 90% of net Stripe revenue). It always creates a **Draft**. A human must review it and mark it Sent in the UI, so never automate that step.
 
 ### `context/` — factory knowledge base and decision record
 Versioned artifacts from the software-factory process (ADRs, PRD/architecture confirmations, design, feature flags, reviews, rework, release). Treat as append-only/versioned, not hand-editable docs — see `.claude/CLAUDE.md` Rule 2 and the artifact publish-record format.

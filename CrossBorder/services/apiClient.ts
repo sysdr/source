@@ -70,7 +70,7 @@ function authHeaders(): Record<string, string> {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(`${BASE}${path}`, {
       ...init,
@@ -94,7 +94,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T | null> 
   }
 }
 
-function qs(params: Record<string, string | number | boolean | undefined>): string {
+export function qs(params: Record<string, string | number | boolean | undefined>): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== '') p.set(k, String(v));

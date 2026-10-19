@@ -30,6 +30,11 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+/** Shared handle for domain modules that own their own tables (e.g. stripeMirror). */
+export function getDatabase(): Database.Database {
+  return db;
+}
+
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
 db.exec(`
